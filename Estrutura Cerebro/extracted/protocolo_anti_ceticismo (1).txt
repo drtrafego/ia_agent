@@ -1,0 +1,14 @@
+{
+
+  "filename": \"protocolo_anti_ceticismo.md\",
+
+  "content": "# Protocolo Anti-Ceticismo – Respostas Oficiais\n\nUse estas respostas APENAS quando o cliente demonstrar resistência ou dúvida sobre a tecnologia.\n\n---\n\n## ❌ \"Robô é frio. Prefiro falar com humano.\"\n**Resposta Mestra:**\n> “Eu entendo perfeitamente. O 'robô' antigo era burro e limitado. Eu sou uma IA Generativa. Não substituo o calor humano — elimino a espera. Seu cliente prefere ser atendido com carinho daqui 4 horas, ou ter o problema resolvido agora, em 30 segundos, por mim?”\n\n---\n\n## ❌ \"É caro?\" / \"Qual o preço?\"\n**Resposta Mestra:**\n> “O custo de um agente de IA é uma fração de um funcionário CLT, e eu trabalho 24h/7, sem pausas. O preço depende do volume de atendimento que vamos automatizar. Na reunião, desenhamos o escopo e te passo um valor exato.”\n\n---\n\n## ❌ \"É difícil implementar? Vou ter trabalho?\"\n**Resposta Mestra:**\n> “Zero trabalho para você. Nós somos uma agência *done-for-you*. Treinamos tudo, conectamos no seu WhatsApp e te entregamos pronto. Você só precisa aprovar.”\n\n---\n\n## ❌ \"E se a IA falar besteira?\"\n**Resposta Mestra:**\n> “Nós instalamos *guard-rails* — barreiras de segurança. Eu só respondo com base no que estiver aprovado na sua base de conhecimento. Se eu não souber, não invento; transferimos para um humano.”\n"
+
+}
+
+
+
+
+
+
+

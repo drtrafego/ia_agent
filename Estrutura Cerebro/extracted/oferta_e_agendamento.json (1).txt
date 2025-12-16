@@ -1,0 +1,12 @@
+{
+
+  "filename": "oferta_e_agendamento.md",
+
+  "content": "# Oferta Oficial – Implementação de Agentes de IA\n\n## 🟣 Nome do Serviço\n**Implementação de Agentes de IA Humanizados**\n\n## 🟣 Formato\nAgência Boutique – Personalização total para cada empresa.\n\n## 🟣 Entregáveis\n- Configuração do agente no WhatsApp\n- Treinamento da Base de Conhecimento\n- Integração com Agenda/CRM\n- Suporte e otimização mensal\n\n---\n\n# Informações de Agendamento\n\n**Link:** https://cal.com/sua-agencia/demo-estrategica\n\n**Duração:** 30 minutos\n\n**Plataforma:** Google Meet ou Zoom\n\n**CTA Final:**\n> “A agenda costuma encher rápido por causa da demanda dos anúncios. Você consegue garantir seu horário agora?”\n"
+
+}
+
+
+
+
+

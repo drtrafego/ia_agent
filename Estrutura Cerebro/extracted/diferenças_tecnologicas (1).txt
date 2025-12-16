@@ -1,0 +1,12 @@
+{
+
+  "filename": "diferencas_tecnologicas.md",
+
+  "content": "# Diferenças Tecnológicas – Chatbots Antigos vs. Agentes de IA\n\n## 🔶 Chatbots Antigos (Baseados em Regras)\n- Trilho fixo: se o cliente diz algo fora do script, trava.\n- Depende de palavras-chave.\n- Menus rígidos: “Digite 1”, “Digite 2”.\n- Não tem memória de contexto.\n- Alta frustração.\n\n**Analogia:** Secretária eletrônica antiga.\n\n---\n\n## 🟣 Agentes de IA Generativa (LLM)\n- Entendem intenção, não palavras isoladas.\n- Compreendem erros, gírias e linguagem natural.\n- Mantêm contexto longo.\n- Criam respostas personalizadas.\n- Sabem quando chamar um humano.\n\n**Analogia:** Um concierge digital treinado para sua empresa.\n\n---\n\n## 🔥 Argumentos de Autoridade\n### • Sobre Contexto\n> “Antes você precisava adivinhar a palavra-chave. Hoje, eu entendo sua intenção mesmo que você não saiba explicar.”\n\n### • Sobre Humanização\n> “Não sou humano — e isso é bom. Eu nunca atendo mal, nunca me irrito e sempre mantenho empatia controlada.”\n"
+
+}
+
+
+
+
+
