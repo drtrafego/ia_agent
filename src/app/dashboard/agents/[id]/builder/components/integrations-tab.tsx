@@ -3,7 +3,7 @@
 import { useBuilderStore } from '@/stores/builder-store';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Calendar, MessageCircle, FileSpreadsheet, CheckCircle2, XCircle } from 'lucide-react';
+import { Calendar, MessageCircle, FileSpreadsheet } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { getIntegrationsStatusAction } from '@/server/actions/integrations';
 import { Badge } from '@/components/ui/badge';
