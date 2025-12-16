@@ -30,8 +30,10 @@ import {
     pgEnum,
     index,
     uniqueIndex,
+    vector,
 } from 'drizzle-orm/pg-core';
-import { relations } from 'drizzle-orm';
+import { relations, sql } from 'drizzle-orm';
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // ENUMS
@@ -220,12 +222,119 @@ export const agents = pgTable('agents', {
 }));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// AGENT_STAGES TABLE (State Machine Workflow)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Enum para tipos de ações automáticas
+ */
+export const actionTypeEnum = pgEnum('action_type', [
+    'google_calendar_list',    // Listar horários disponíveis
+    'google_calendar_create',  // Criar evento no calendar
+    'google_sheets_append',    // Adicionar linha na planilha
+    'transfer_human',          // Transferir para humano
+    'send_whatsapp_template',  // Enviar template do WhatsApp
+    'webhook',                 // Chamar webhook externo
+]);
+
+/**
+ * Tabela de estágios do agente.
+ * Define o fluxo de atendimento em formato State Machine.
+ * Exemplo: Identificar → Diagnosticar → Agendar → Concluir
+ */
+export const agentStages = pgTable('agent_stages', {
+    id: uuid('id').defaultRandom().primaryKey(),
+
+    // Relacionamento com agente
+    agentId: uuid('agent_id')
+        .notNull()
+        .references(() => agents.id, { onDelete: 'cascade' }),
+
+    // Identificação do estágio
+    name: varchar('name', { length: 255 }).notNull(),
+    type: stageTypeEnum('type').default('custom').notNull(),
+    order: integer('order').notNull(), // Ordem no fluxo (1, 2, 3...)
+
+    // Lógica de transição
+    entryCondition: text('entry_condition'), // Condição para entrar neste estágio
+    instructions: text('instructions').notNull(), // Prompt específico do estágio
+
+    // Variáveis obrigatórias para avançar
+    requiredVariables: jsonb('required_variables').$type<string[]>().default([]),
+
+    // Navegação
+    nextStageId: uuid('next_stage_id'), // Próximo estágio (null = fim do fluxo)
+
+    // Status
+    isActive: boolean('is_active').default(true).notNull(),
+
+    // Metadados
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+}, (table) => ({
+    agentIdIdx: index('stages_agent_id_idx').on(table.agentId),
+    orderIdx: index('stages_order_idx').on(table.agentId, table.order),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// AGENT_ACTIONS TABLE (Actions executed at each stage)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Configuração de uma ação automática
+ */
+export type ActionConfig = {
+    duration?: number;
+    searchWindowDays?: number;
+    timeRangeStart?: string;
+    timeRangeEnd?: string;
+    excludeWeekends?: boolean;
+    eventTitleTemplate?: string;
+    spreadsheetId?: string;
+    sheetName?: string;
+    columnMapping?: Record<string, string>;
+    webhookUrl?: string;
+    webhookMethod?: 'GET' | 'POST';
+    webhookHeaders?: Record<string, string>;
+    [key: string]: unknown;
+};
+
+/**
+ * Tabela de ações automáticas.
+ * Define o que acontece quando um estágio é ativado.
+ */
+export const agentActions = pgTable('agent_actions', {
+    id: uuid('id').defaultRandom().primaryKey(),
+
+    // Relacionamento com estágio
+    stageId: uuid('stage_id')
+        .notNull()
+        .references(() => agentStages.id, { onDelete: 'cascade' }),
+
+    // Configuração da ação
+    type: actionTypeEnum('type').notNull(),
+    config: jsonb('config').$type<ActionConfig>().notNull(),
+
+    // Ordem de execução
+    order: integer('order').default(0).notNull(),
+
+    // Status
+    isActive: boolean('is_active').default(true).notNull(),
+
+    // Metadados
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+}, (table) => ({
+    stageIdIdx: index('actions_stage_id_idx').on(table.stageId),
+    typeIdx: index('actions_type_idx').on(table.type),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
 // KNOWLEDGE_BASE TABLE
 // ─────────────────────────────────────────────────────────────────────────────
 
 /**
- * Tabela de base de conhecimento.
- * Armazena tópicos de informação que são injetados no contexto do agente.
+ * Tabela de base de conhecimento (Cérebro do Agente).
+ * Armazena informações para RAG com busca semântica via pgvector.
  */
 export const knowledgeBase = pgTable('knowledge_base', {
     id: uuid('id').defaultRandom().primaryKey(),
@@ -235,13 +344,30 @@ export const knowledgeBase = pgTable('knowledge_base', {
         .notNull()
         .references(() => agents.id, { onDelete: 'cascade' }),
 
+    // Tipo de conteúdo
+    contentType: varchar('content_type', { length: 20 }).default('text').notNull(), // 'text', 'faq', 'file'
+
     // Conteúdo
     topic: varchar('topic', { length: 255 }).notNull(), // Ex: "Preços", "Metodologia", "FAQ"
     content: text('content').notNull(), // Conteúdo em texto livre ou markdown
 
-    // Metadados para RAG
-    keywords: jsonb('keywords').$type<string[]>().default([]), // Palavras-chave para matching
-    priority: integer('priority').default(0).notNull(), // Ordem de injeção (maior = primeiro)
+    // Embedding para busca semântica (RAG)
+    // 1536 dimensões = compatível com text-embedding-3-small da OpenAI
+    embedding: vector('embedding', { dimensions: 1536 }),
+
+    // Metadados do arquivo (para conteúdo tipo 'file')
+    metadata: jsonb('metadata').$type<{
+        fileName?: string;
+        fileType?: string;
+        fileSize?: number;
+        pageNumber?: number;
+        chunkIndex?: number;
+        source?: string;
+    }>().default({}),
+
+    // Metadados para matching tradicional
+    keywords: jsonb('keywords').$type<string[]>().default([]),
+    priority: integer('priority').default(0).notNull(),
 
     // Status
     isActive: boolean('is_active').default(true).notNull(),
@@ -252,7 +378,9 @@ export const knowledgeBase = pgTable('knowledge_base', {
 }, (table) => ({
     agentIdIdx: index('knowledge_agent_id_idx').on(table.agentId),
     agentTopicIdx: index('knowledge_agent_topic_idx').on(table.agentId, table.topic),
+    contentTypeIdx: index('knowledge_content_type_idx').on(table.agentId, table.contentType),
 }));
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // INTEGRATIONS TABLE
@@ -492,9 +620,11 @@ export const agentsRelations = relations(agents, ({ one, many }) => ({
         fields: [agents.userId],
         references: [users.id],
     }),
+    stages: many(agentStages),
     knowledgeBase: many(knowledgeBase),
     threads: many(threads),
 }));
+
 
 /**
  * Relações da base de conhecimento
@@ -566,6 +696,27 @@ export const sessionsRelations = relations(sessions, ({ one }) => ({
     }),
 }));
 
+/**
+ * Relações dos estágios
+ */
+export const agentStagesRelations = relations(agentStages, ({ one, many }) => ({
+    agent: one(agents, {
+        fields: [agentStages.agentId],
+        references: [agents.id],
+    }),
+    actions: many(agentActions),
+}));
+
+/**
+ * Relações das ações
+ */
+export const agentActionsRelations = relations(agentActions, ({ one }) => ({
+    stage: one(agentStages, {
+        fields: [agentActions.stageId],
+        references: [agentStages.id],
+    }),
+}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES (Inferidos do Schema)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -575,6 +726,12 @@ export type NewUser = typeof users.$inferInsert;
 
 export type Agent = typeof agents.$inferSelect;
 export type NewAgent = typeof agents.$inferInsert;
+
+export type AgentStage = typeof agentStages.$inferSelect;
+export type NewAgentStage = typeof agentStages.$inferInsert;
+
+export type AgentAction = typeof agentActions.$inferSelect;
+export type NewAgentAction = typeof agentActions.$inferInsert;
 
 export type KnowledgeBaseItem = typeof knowledgeBase.$inferSelect;
 export type NewKnowledgeBaseItem = typeof knowledgeBase.$inferInsert;

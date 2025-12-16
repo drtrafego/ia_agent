@@ -1,1064 +1,289 @@
-# 🏗️ ARCHITECTURE.md — CRM Casal do Tráfego
+# Agent Builder - Architecture
 
-> **Versão:** 1.0.0  
-> **Última Atualização:** 2025-12-11  
-> **Autor:** Arquitetura de Software
+## 🎯 Overview
 
----
-
-## 📋 Índice
-
-1. [Visão Geral](#1-visão-geral)
-2. [Diagrama de Arquitetura](#2-diagrama-de-arquitetura)
-3. [Camadas da Aplicação](#3-camadas-da-aplicação)
-4. [Fluxo de Dados](#4-fluxo-de-dados)
-5. [Comunicação Frontend ↔ Backend](#5-comunicação-frontend--backend)
-6. [Engine do Agente IA](#6-engine-do-agente-ia)
-7. [Gestão de Estado das Conversas](#7-gestão-de-estado-das-conversas)
-8. [Integrações Externas](#8-integrações-externas)
-9. [Segurança e Autenticação](#9-segurança-e-autenticação)
-10. [Decisões de Design](#10-decisões-de-design)
-
----
-
-## 1. Visão Geral
-
-### 1.1 Propósito do Sistema
-
-O **CRM Casal do Tráfego** é uma plataforma de automação de atendimento via WhatsApp, projetada para:
-
-- **Automatizar conversas** com leads através de agentes de IA configuráveis
-- **Centralizar conhecimento** em bases de dados que alimentam os agentes
-- **Integrar calendário** para agendamento automático de reuniões
-- **Capturar leads** automaticamente em planilhas do Google
-- **Monitorar métricas** de atendimento em tempo real
-
-### 1.2 Stack Tecnológica
-
-| Camada | Tecnologia | Versão | Justificativa |
-|--------|------------|--------|---------------|
-| Framework | Next.js | 15.x | App Router, Server Components, Server Actions |
-| Linguagem | TypeScript | 5.x | Type Safety, DX superior |
-| AI Engine | Vercel AI SDK | 4.x | `generateText`, `tool calling` nativo |
-| Database | Neon + Drizzle | Latest | Serverless Postgres, ORM type-safe |
-| UI | Shadcn UI | Latest | Componentes acessíveis, customizáveis |
-| Styling | Tailwind CSS | 4.x | Design system consistente |
-| Icons | Lucide React | Latest | Ícones otimizados |
-
-### 1.3 Princípios Arquiteturais
+O Agent Builder é uma plataforma SaaS para criar agentes de IA baseados em **State Machine (Estágios)**. Diferente de chatbots tradicionais que operam em conversas livres, nossos agentes seguem um **fluxo estruturado** de atendimento.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    PRINCÍPIOS CORE                          │
-├─────────────────────────────────────────────────────────────┤
-│  1. Separation of Concerns (SoC)                            │
-│     └─ Cada camada tem responsabilidade única               │
-│                                                             │
-│  2. Server-First Architecture                               │
-│     └─ Lógica de negócio SEMPRE no servidor                 │
-│                                                             │
-│  3. Type Safety End-to-End                                  │
-│     └─ TypeScript strict do DB até o Frontend               │
-│                                                             │
-│  4. Stateless Webhook Processing                            │
-│     └─ Cada requisição é independente, contexto vem do DB   │
-│                                                             │
-│  5. Fail-Safe AI Responses                                  │
-│     └─ Sempre ter fallback quando a IA não conseguir        │
-└─────────────────────────────────────────────────────────────┘
+[Identificar] → [Diagnosticar] → [Listar Agenda] → [Agendar] → [Concluir]
 ```
 
 ---
 
-## 2. Diagrama de Arquitetura
+## 🔧 Stack Tecnológica
 
-### 2.1 Visão Macro do Sistema
-
-```
-                                    ┌─────────────────────────────────────┐
-                                    │         EXTERNAL SERVICES           │
-                                    ├─────────────────────────────────────┤
-                                    │  ┌─────────┐  ┌─────────┐  ┌──────┐ │
-                                    │  │ WhatsApp│  │ Google  │  │OpenAI│ │
-                                    │  │  Meta   │  │Calendar │  │ API  │ │
-                                    │  │   API   │  │+ Sheets │  │      │ │
-                                    │  └────┬────┘  └────┬────┘  └──┬───┘ │
-                                    └───────┼───────────┼──────────┼─────┘
-                                            │           │          │
-                    ┌───────────────────────▼───────────▼──────────▼───────────────────────┐
-                    │                        API LAYER (Next.js App Router)                 │
-                    ├──────────────────────────────────────────────────────────────────────┤
-                    │                                                                       │
-                    │   ┌──────────────────────────┐    ┌──────────────────────────┐       │
-                    │   │  /api/webhooks/whatsapp  │    │    /api/auth/[...next]   │       │
-                    │   │  (Incoming Messages)     │    │    (Authentication)      │       │
-                    │   └────────────┬─────────────┘    └──────────────────────────┘       │
-                    │                │                                                      │
-                    └────────────────┼──────────────────────────────────────────────────────┘
-                                     │
-                    ┌────────────────▼──────────────────────────────────────────────────────┐
-                    │                         SERVER LAYER                                  │
-                    ├───────────────────────────────────────────────────────────────────────┤
-                    │                                                                       │
-                    │   ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐    │
-                    │   │    /server      │   │    /server      │   │    /server      │    │
-                    │   │    /actions     │   │    /services    │   │    /queries     │    │
-                    │   │ (Mutations)     │   │ (Integrations)  │   │ (Data Fetch)    │    │
-                    │   └────────┬────────┘   └────────┬────────┘   └────────┬────────┘    │
-                    │            │                     │                     │             │
-                    └────────────┼─────────────────────┼─────────────────────┼─────────────┘
-                                 │                     │                     │
-                    ┌────────────▼─────────────────────▼─────────────────────▼─────────────┐
-                    │                          DATA LAYER                                   │
-                    ├───────────────────────────────────────────────────────────────────────┤
-                    │                                                                       │
-                    │   ┌─────────────────────────────────────────────────────────────┐    │
-                    │   │                    Drizzle ORM + Neon                        │    │
-                    │   │  ┌─────────┐ ┌───────────────┐ ┌────────────┐ ┌──────────┐  │    │
-                    │   │  │ agents  │ │knowledge_base │ │integrations│ │ threads  │  │    │
-                    │   │  └─────────┘ └───────────────┘ └────────────┘ └──────────┘  │    │
-                    │   │  ┌──────────┐                                               │    │
-                    │   │  │ messages │                                               │    │
-                    │   │  └──────────┘                                               │    │
-                    │   └─────────────────────────────────────────────────────────────┘    │
-                    │                                                                       │
-                    └───────────────────────────────────────────────────────────────────────┘
-
-                    ┌───────────────────────────────────────────────────────────────────────┐
-                    │                         FRONTEND LAYER                                │
-                    ├───────────────────────────────────────────────────────────────────────┤
-                    │                                                                       │
-                    │   ┌───────────────────────────────────────────────────────────┐      │
-                    │   │                    /app (App Router)                       │      │
-                    │   │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐    │      │
-                    │   │  │  /dashboard │  │  /agents    │  │  /knowledge     │    │      │
-                    │   │  │  (Overview) │  │  (Builder)  │  │  (Base Editor)  │    │      │
-                    │   │  └─────────────┘  └─────────────┘  └─────────────────┘    │      │
-                    │   │  ┌─────────────┐  ┌─────────────┐                         │      │
-                    │   │  │  /threads   │  │ /analytics  │                         │      │
-                    │   │  │  (Inbox)    │  │ (Metrics)   │                         │      │
-                    │   │  └─────────────┘  └─────────────┘                         │      │
-                    │   └───────────────────────────────────────────────────────────┘      │
-                    │                                                                       │
-                    │   ┌───────────────────────────────────────────────────────────┐      │
-                    │   │                    /components                             │      │
-                    │   │  ┌────────┐  ┌──────────┐  ┌────────────────────────────┐ │      │
-                    │   │  │  /ui   │  │ /layout  │  │        /features           │ │      │
-                    │   │  │ Shadcn │  │ Sidebar  │  │ agent-builder, chat-preview│ │      │
-                    │   │  └────────┘  └──────────┘  └────────────────────────────┘ │      │
-                    │   └───────────────────────────────────────────────────────────┘      │
-                    │                                                                       │
-                    └───────────────────────────────────────────────────────────────────────┘
-```
+| Layer | Technology |
+|-------|------------|
+| **Frontend** | Next.js 15 (App Router), React Query, Zustand |
+| **UI** | Shadcn UI, Tailwind CSS, Lucide Icons |
+| **Backend** | Next.js API Routes, Server Actions |
+| **AI** | Vercel AI SDK Core, OpenAI GPT-4 |
+| **Database** | Neon (Serverless Postgres), Drizzle ORM |
+| **Auth** | NextAuth.js (Google OAuth) |
+| **Integrations** | Google Calendar, Google Sheets, Meta WhatsApp |
 
 ---
 
-## 3. Camadas da Aplicação
+## 🏗️ Database Architecture
 
-### 3.1 Estrutura de Diretórios Detalhada
+### Core Tables
 
 ```
-/src
-├── /app                              # Next.js App Router
-│   ├── /dashboard                    # Página Principal (Protegida)
-│   │   ├── page.tsx                  # Overview com métricas
-│   │   └── layout.tsx                # Layout com Sidebar
-│   │
-│   ├── /dashboard/agents             # Gestão de Agentes
-│   │   ├── page.tsx                  # Lista de agentes
-│   │   └── /[id]
-│   │       └── page.tsx              # Editor do agente
-│   │
-│   ├── /dashboard/knowledge          # Base de Conhecimento
-│   │   └── page.tsx                  # Editor de tópicos
-│   │
-│   ├── /dashboard/threads            # Inbox de Conversas
-│   │   ├── page.tsx                  # Lista de threads
-│   │   └── /[id]
-│   │       └── page.tsx              # Visualizador de conversa
-│   │
-│   ├── /dashboard/analytics          # Métricas
-│   │   └── page.tsx                  # Gráficos e KPIs
-│   │
-│   ├── /dashboard/integrations       # Configurar Integrações
-│   │   └── page.tsx                  # OAuth Google, Meta
-│   │
-│   ├── /api                          # API Routes
-│   │   ├── /webhooks
-│   │   │   └── /whatsapp
-│   │   │       └── route.ts          # Handler principal
-│   │   └── /auth
-│   │       └── /[...nextauth]
-│   │           └── route.ts          # NextAuth handler
-│   │
-│   ├── layout.tsx                    # Root Layout
-│   ├── page.tsx                      # Landing Page
-│   └── globals.css                   # Tailwind imports
-│
-├── /components                       # Componentes React
-│   ├── /ui                           # Shadcn primitives
-│   │   ├── button.tsx
-│   │   ├── card.tsx
-│   │   ├── input.tsx
-│   │   ├── textarea.tsx
-│   │   ├── select.tsx
-│   │   ├── dialog.tsx
-│   │   ├── dropdown-menu.tsx
-│   │   ├── avatar.tsx
-│   │   ├── badge.tsx
-│   │   ├── skeleton.tsx
-│   │   └── toast.tsx
-│   │
-│   ├── /layout                       # Layout Components
-│   │   ├── sidebar.tsx               # Navegação lateral
-│   │   ├── header.tsx                # Header com user menu
-│   │   ├── page-wrapper.tsx          # Container de página
-│   │   └── mobile-nav.tsx            # Menu mobile
-│   │
-│   └── /features                     # Feature Components
-│       ├── /agent-builder
-│       │   ├── agent-form.tsx        # Formulário principal
-│       │   ├── prompt-editor.tsx     # Editor de System Prompt
-│       │   ├── model-selector.tsx    # Seletor de modelo
-│       │   └── tool-configurator.tsx # Config de ferramentas
-│       │
-│       ├── /chat-preview
-│       │   ├── chat-container.tsx    # Container do chat
-│       │   ├── message-bubble.tsx    # Bolha de mensagem
-│       │   └── chat-input.tsx        # Input de teste
-│       │
-│       ├── /knowledge-base
-│       │   ├── topic-list.tsx        # Lista de tópicos
-│       │   ├── topic-editor.tsx      # Editor de conteúdo
-│       │   └── import-dialog.tsx     # Importar documentos
-│       │
-│       ├── /threads
-│       │   ├── thread-list.tsx       # Lista de conversas
-│       │   ├── thread-item.tsx       # Item individual
-│       │   └── thread-viewer.tsx     # Visualizador completo
-│       │
-│       └── /analytics
-│           ├── stats-cards.tsx       # Cards de métricas
-│           ├── usage-chart.tsx       # Gráfico de uso
-│           └── response-time.tsx     # Tempo de resposta
-│
-├── /lib                              # Configurações Core
-│   ├── /ai
-│   │   ├── config.ts                 # Config do Vercel AI SDK
-│   │   ├── tools.ts                  # Definição das ferramentas
-│   │   └── prompts.ts                # Templates de prompts
-│   │
-│   ├── /db
-│   │   ├── index.ts                  # Drizzle client export
-│   │   └── config.ts                 # Neon connection config
-│   │
-│   ├── utils.ts                      # Helpers globais
-│   ├── constants.ts                  # Constantes da aplicação
-│   └── types.ts                      # Types compartilhados
-│
-├── /server                           # Server-Side Logic
-│   ├── /actions                      # Server Actions
-│   │   ├── agent.actions.ts          # CRUD de agentes
-│   │   ├── knowledge.actions.ts      # CRUD de knowledge base
-│   │   ├── thread.actions.ts         # Gestão de threads
-│   │   └── integration.actions.ts    # Config de integrações
-│   │
-│   ├── /services                     # External Services
-│   │   ├── openai.service.ts         # OpenAI API wrapper
-│   │   ├── google-calendar.service.ts# Google Calendar API
-│   │   ├── google-sheets.service.ts  # Google Sheets API
-│   │   └── meta-whatsapp.service.ts  # Meta WhatsApp API
-│   │
-│   └── /queries                      # Database Queries
-│       ├── agent.queries.ts          # Queries de agentes
-│       ├── knowledge.queries.ts      # Queries de knowledge
-│       ├── thread.queries.ts         # Queries de threads
-│       └── message.queries.ts        # Queries de mensagens
-│
-├── /db                               # Database Schema
-│   └── schema.ts                     # Drizzle Schema completo
-│
-└── /docs                             # Documentação
-    ├── ARCHITECTURE.md               # Este documento
-    ├── API.md                        # Documentação de APIs
-    └── DEPLOYMENT.md                 # Guia de deploy
+┌─────────────┐       ┌──────────────┐       ┌─────────────┐
+│   users     │──1:N──│   agents     │──1:N──│   stages    │
+└─────────────┘       └──────────────┘       └─────────────┘
+                             │                      │
+                             │ 1:N                  │ 1:N
+                             ▼                      ▼
+                      ┌──────────────┐       ┌─────────────┐
+                      │ knowledge_   │       │   actions   │
+                      │    base      │       └─────────────┘
+                      └──────────────┘
+                             
+┌─────────────┐       ┌──────────────┐       ┌─────────────┐
+│   threads   │──1:1──│   sessions   │──1:N──│  messages   │
+└─────────────┘       └──────────────┘       └─────────────┘
 ```
 
-### 3.2 Responsabilidades por Camada
+### Key Relationships
 
-| Camada | Diretório | Responsabilidade | Pode Acessar |
-|--------|-----------|------------------|--------------|
-| **Presentation** | `/app`, `/components` | Renderização, UX, Interação | Server Actions |
-| **Actions** | `/server/actions` | Mutações, Validação, Cache Invalidation | Services, Queries |
-| **Services** | `/server/services` | Comunicação com APIs externas | - |
-| **Queries** | `/server/queries` | Leitura do banco de dados | Drizzle Client |
-| **Data** | `/db` | Definição do schema | - |
+- **User** → owns many **Agents**
+- **Agent** → has many **Stages** (workflow) and **Knowledge Base** entries
+- **Stage** → has many **Actions** (executadas quando o estágio é ativado)
+- **Thread** → has one **Session** (current state) and many **Messages**
 
 ---
 
-## 4. Fluxo de Dados
+## ⚙️ Stage Machine Engine
 
-### 4.1 Fluxo de Leitura (Frontend → Backend → DB)
+O coração do sistema é a **Stage Machine** que controla o fluxo da conversa.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          FLUXO DE LEITURA (READ)                            │
-└─────────────────────────────────────────────────────────────────────────────┘
+### Flow Diagram
 
-  ┌───────────────┐     ┌────────────────────┐     ┌─────────────────────┐
-  │   React       │     │   Server           │     │   Drizzle           │
-  │   Component   │────▶│   Component        │────▶│   Query             │
-  │   (Client)    │     │   (RSC)            │     │   /server/queries   │
-  └───────────────┘     └────────────────────┘     └──────────┬──────────┘
-                                                               │
-                                                               ▼
-                                                    ┌─────────────────────┐
-                                                    │   Neon Postgres     │
-                                                    │   (Data)            │
-                                                    └─────────────────────┘
-
-EXEMPLO CONCRETO:
-
-  // 1. Page.tsx (Server Component) chama query diretamente
-  // /app/dashboard/agents/page.tsx
-  
-  import { getAgents } from '@/server/queries/agent.queries';
-  
-  export default async function AgentsPage() {
-    const agents = await getAgents(); // ← Query direto no server
+```mermaid
+stateDiagram-v2
+    [*] --> Identify: Nova conversa
     
-    return <AgentList agents={agents} />;
-  }
-  
-  // 2. Query busca no banco
-  // /server/queries/agent.queries.ts
-  
-  export async function getAgents() {
-    return await db.select().from(agents).orderBy(desc(agents.createdAt));
-  }
-```
-
-### 4.2 Fluxo de Escrita (Frontend → Server Action → DB)
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          FLUXO DE ESCRITA (WRITE)                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-  ┌───────────────┐     ┌────────────────────┐     ┌─────────────────────┐
-  │   Form        │     │   Server           │     │   Drizzle           │
-  │   Component   │────▶│   Action           │────▶│   Mutation          │
-  │   (Client)    │     │   /server/actions  │     │   (insert/update)   │
-  └───────────────┘     └────────────────────┘     └──────────┬──────────┘
-         │                       │                             │
-         │                       │                             ▼
-         │                       │                  ┌─────────────────────┐
-         │                       │                  │   Neon Postgres     │
-         │                       │                  │   (Data)            │
-         │                       │                  └─────────────────────┘
-         │                       │
-         │                       ▼
-         │              ┌────────────────────┐
-         │              │   revalidatePath   │
-         │              │   (Cache Bust)     │
-         │              └────────────────────┘
-         │                       │
-         ◀───────────────────────┘
-              UI Atualizada
-
-
-EXEMPLO CONCRETO:
-
-  // 1. Client Component com formulário
-  // /components/features/agent-builder/agent-form.tsx
-  
-  'use client';
-  
-  import { createAgent } from '@/server/actions/agent.actions';
-  import { useFormState } from 'react-dom';
-  
-  export function AgentForm() {
-    const [state, formAction] = useFormState(createAgent, null);
+    Identify --> Diagnosis: nome + email coletados
+    Identify --> Identify: dados faltando
     
-    return (
-      <form action={formAction}>
-        <input name="name" />
-        <textarea name="systemPrompt" />
-        <button type="submit">Criar Agente</button>
-      </form>
-    );
-  }
-  
-  // 2. Server Action processa
-  // /server/actions/agent.actions.ts
-  
-  'use server';
-  
-  import { db } from '@/lib/db';
-  import { agents } from '@/db/schema';
-  import { revalidatePath } from 'next/cache';
-  
-  export async function createAgent(prevState: any, formData: FormData) {
-    const data = {
-      name: formData.get('name') as string,
-      systemPrompt: formData.get('systemPrompt') as string,
-    };
+    Diagnosis --> ListAgenda: problema identificado
+    Diagnosis --> Handoff: problema complexo
     
-    // Validação com Zod
-    const validated = agentSchema.parse(data);
+    ListAgenda --> Schedule: horários listados
     
-    // Inserção no banco
-    const [newAgent] = await db.insert(agents).values(validated).returning();
+    Schedule --> Complete: reunião agendada
+    Schedule --> ListAgenda: horário indisponível
     
-    // Invalida cache
-    revalidatePath('/dashboard/agents');
-    
-    return { success: true, agent: newAgent };
-  }
+    Complete --> [*]: fluxo finalizado
+    Handoff --> [*]: transferido para humano
 ```
 
----
-
-## 5. Comunicação Frontend ↔ Backend
-
-### 5.1 Padrões de Comunicação
+### Execution Flow
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                    PADRÕES DE COMUNICAÇÃO                                   │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                    SERVER COMPONENTS (RSC)                           │  │
-│   │                                                                      │  │
-│   │   USE PARA: Leitura de dados, SEO, carregamento inicial             │  │
-│   │                                                                      │  │
-│   │   • Renderizam no servidor                                          │  │
-│   │   • Podem acessar DB diretamente via /server/queries                │  │
-│   │   • Não usam hooks (useState, useEffect)                            │  │
-│   │   • Passam dados para Client Components via props                   │  │
-│   │                                                                      │  │
-│   │   EXEMPLO:                                                          │  │
-│   │   async function DashboardPage() {                                  │  │
-│   │     const stats = await getStats(); // Query direto                 │  │
-│   │     return <StatsCards data={stats} />;                             │  │
-│   │   }                                                                 │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                    CLIENT COMPONENTS                                 │  │
-│   │                                                                      │  │
-│   │   USE PARA: Interatividade, formulários, estado local               │  │
-│   │                                                                      │  │
-│   │   • Marcados com 'use client'                                       │  │
-│   │   • Podem usar hooks React                                          │  │
-│   │   • Chamam Server Actions para mutações                             │  │
-│   │   • NÃO acessam DB diretamente                                      │  │
-│   │                                                                      │  │
-│   │   EXEMPLO:                                                          │  │
-│   │   'use client';                                                     │  │
-│   │   function AgentToggle({ agentId }) {                               │  │
-│   │     const [pending, startTransition] = useTransition();             │  │
-│   │     return (                                                        │  │
-│   │       <Switch                                                       │  │
-│   │         onCheckedChange={() => {                                    │  │
-│   │           startTransition(() => toggleAgent(agentId));              │  │
-│   │         }}                                                          │  │
-│   │       />                                                            │  │
-│   │     );                                                              │  │
-│   │   }                                                                 │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-│   ┌─────────────────────────────────────────────────────────────────────┐  │
-│   │                    SERVER ACTIONS                                    │  │
-│   │                                                                      │  │
-│   │   USE PARA: Mutações de dados, validação, side effects              │  │
-│   │                                                                      │  │
-│   │   • Marcados com 'use server'                                       │  │
-│   │   • Executam no servidor, chamados do cliente                       │  │
-│   │   • Validação com Zod                                               │  │
-│   │   • Chamam revalidatePath/revalidateTag após mudanças               │  │
-│   │                                                                      │  │
-│   │   EXEMPLO:                                                          │  │
-│   │   'use server';                                                     │  │
-│   │   export async function deleteAgent(id: string) {                   │  │
-│   │     await db.delete(agents).where(eq(agents.id, id));               │  │
-│   │     revalidatePath('/dashboard/agents');                            │  │
-│   │   }                                                                 │  │
-│   └─────────────────────────────────────────────────────────────────────┘  │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
+1. User sends message
+          ↓
+2. Load session (current stage, variables)
+          ↓
+3. Check: required_variables collected?
+    ├─ No → Ask for missing data
+    └─ Yes → Continue
+          ↓
+4. Check: entry_condition for NEXT stage met?
+    ├─ No → Stay in current stage
+    └─ Yes → Advance to next stage
+          ↓
+5. Execute stage ACTIONS (Calendar, Sheets, etc.)
+          ↓
+6. Generate AI response with stage context
+          ↓
+7. Save message + update session
 ```
 
-### 5.2 Mapeamento de Componentes para Actions
-
-| Componente | Server Action | Descrição |
-|------------|---------------|-----------|
-| `AgentForm` | `createAgent`, `updateAgent` | CRUD de agentes |
-| `PromptEditor` | `updateSystemPrompt` | Edição de prompts |
-| `TopicEditor` | `createTopic`, `updateTopic`, `deleteTopic` | Gestão de knowledge |
-| `IntegrationCard` | `connectIntegration`, `disconnectIntegration` | OAuth |
-| `ThreadViewer` | `archiveThread`, `exportThread` | Gestão de conversas |
-| `AgentToggle` | `toggleAgentStatus` | Ativar/desativar agente |
-
----
-
-## 6. Engine do Agente IA
-
-### 6.1 Fluxo Completo do Webhook
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                     FLUXO DO WEBHOOK WHATSAPP                               │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-    ┌──────────────┐
-    │  WhatsApp    │
-    │  User        │
-    └──────┬───────┘
-           │
-           │ 1. Envia mensagem
-           ▼
-    ┌──────────────┐
-    │  Meta API    │
-    │  (Webhook)   │
-    └──────┬───────┘
-           │
-           │ 2. POST /api/webhooks/whatsapp
-           ▼
-    ┌──────────────────────────────────────────────────────────────────────┐
-    │                         WEBHOOK HANDLER                               │
-    │                    /api/webhooks/whatsapp/route.ts                    │
-    ├──────────────────────────────────────────────────────────────────────┤
-    │                                                                       │
-    │   ┌─────────────────────────────────────────────────────────────┐    │
-    │   │  STEP 1: Validação do Webhook                               │    │
-    │   │  • Verificar assinatura X-Hub-Signature-256                 │    │
-    │   │  • Validar estrutura do payload                             │    │
-    │   └─────────────────────────────────────────────────────────────┘    │
-    │                              │                                        │
-    │                              ▼                                        │
-    │   ┌─────────────────────────────────────────────────────────────┐    │
-    │   │  STEP 2: Identificação do Thread                            │    │
-    │   │  • Extrair phone number do payload                          │    │
-    │   │  • Buscar thread existente OU criar nova                    │    │
-    │   │  • Atualizar last_interaction_at                            │    │
-    │   └─────────────────────────────────────────────────────────────┘    │
-    │                              │                                        │
-    │                              ▼                                        │
-    │   ┌─────────────────────────────────────────────────────────────┐    │
-    │   │  STEP 3: Carregar Contexto                                  │    │
-    │   │  • Buscar últimas 10 mensagens da thread                    │    │
-    │   │  • Buscar configuração do agente ativo                      │    │
-    │   │  • Carregar integrações disponíveis                         │    │
-    │   └─────────────────────────────────────────────────────────────┘    │
-    │                              │                                        │
-    │                              ▼                                        │
-    │   ┌─────────────────────────────────────────────────────────────┐    │
-    │   │  STEP 4: RAG - Injeção de Conhecimento                      │    │
-    │   │  • Analisar intent da mensagem                              │    │
-    │   │  • Buscar tópicos relevantes em knowledge_base              │    │
-    │   │  • Compor System Prompt dinâmico                            │    │
-    │   └─────────────────────────────────────────────────────────────┘    │
-    │                              │                                        │
-    │                              ▼                                        │
-    │   ┌─────────────────────────────────────────────────────────────┐    │
-    │   │  STEP 5: AI Processing (Vercel AI SDK)                      │    │
-    │   │  • Chamar generateText com tools                            │    │
-    │   │  • Processar tool calls (se houver)                         │    │
-    │   │  • Obter resposta final                                     │    │
-    │   └─────────────────────────────────────────────────────────────┘    │
-    │                              │                                        │
-    │                              ▼                                        │
-    │   ┌─────────────────────────────────────────────────────────────┐    │
-    │   │  STEP 6: Persistência                                       │    │
-    │   │  • Salvar mensagem do user no DB                            │    │
-    │   │  • Salvar resposta do assistant no DB                       │    │
-    │   │  • Registrar tool calls executadas                          │    │
-    │   └─────────────────────────────────────────────────────────────┘    │
-    │                              │                                        │
-    │                              ▼                                        │
-    │   ┌─────────────────────────────────────────────────────────────┐    │
-    │   │  STEP 7: Envio de Resposta                                  │    │
-    │   │  • POST para Meta Send Message API                          │    │
-    │   │  • Retry com exponential backoff (se falhar)                │    │
-    │   └─────────────────────────────────────────────────────────────┘    │
-    │                                                                       │
-    └───────────────────────────────────────────────────────────────────────┘
-           │
-           │ 8. Resposta entregue
-           ▼
-    ┌──────────────┐
-    │  WhatsApp    │
-    │  User        │
-    └──────────────┘
-```
-
-### 6.2 Estrutura do System Prompt Dinâmico
+### Code Structure
 
 ```typescript
-// /lib/ai/prompts.ts
+// /src/server/engine/stage-machine.ts
 
-export function buildSystemPrompt(params: {
-  agent: Agent;
-  knowledge: KnowledgeBase[];
-  threadContext: Message[];
-}) {
-  return `
-## IDENTIDADE
-Você é ${params.agent.name}, um assistente virtual da empresa Casal do Tráfego.
-
-## COMPORTAMENTO
-${params.agent.systemPrompt}
-
-## BASE DE CONHECIMENTO
-Aqui estão informações relevantes que você DEVE usar para responder:
-
-${params.knowledge.map(k => `
-### ${k.topic}
-${k.content}
-`).join('\n')}
-
-## CONTEXTO DA CONVERSA
-Últimas interações com este cliente:
-${params.threadContext.map(m => `[${m.role}]: ${m.content}`).join('\n')}
-
-## FERRAMENTAS DISPONÍVEIS
-- schedule_meeting: Agendar reunião no Google Calendar
-- save_lead: Salvar lead na planilha do Google Sheets
-
-## REGRAS
-1. Seja profissional mas amigável
-2. NUNCA invente informações, use apenas a Base de Conhecimento
-3. Se não souber algo, diga que vai verificar e retornar
-4. Use as ferramentas quando apropriado
-`.trim();
-}
-```
-
-### 6.3 Definição das Tools (Ferramentas)
-
-```typescript
-// /lib/ai/tools.ts
-
-import { tool } from 'ai';
-import { z } from 'zod';
-import { scheduleGoogleCalendar } from '@/server/services/google-calendar.service';
-import { appendToSheet } from '@/server/services/google-sheets.service';
-
-export const agentTools = {
-  schedule_meeting: tool({
-    description: 'Agendar uma reunião/call com o lead no Google Calendar',
-    parameters: z.object({
-      title: z.string().describe('Título da reunião'),
-      date: z.string().describe('Data no formato YYYY-MM-DD'),
-      time: z.string().describe('Horário no formato HH:MM'),
-      duration: z.number().describe('Duração em minutos'),
-      attendeeEmail: z.string().email().describe('Email do participante'),
-      attendeeName: z.string().describe('Nome do participante'),
-    }),
-    execute: async (params) => {
-      const result = await scheduleGoogleCalendar(params);
-      return {
-        success: true,
-        eventId: result.id,
-        meetLink: result.hangoutLink,
-      };
-    },
-  }),
-
-  save_lead: tool({
-    description: 'Salvar informações de um lead na planilha do Google Sheets',
-    parameters: z.object({
-      name: z.string().describe('Nome completo do lead'),
-      phone: z.string().describe('Telefone do lead'),
-      email: z.string().email().optional().describe('Email do lead'),
-      interest: z.string().describe('Interesse/produto mencionado'),
-      notes: z.string().optional().describe('Observações adicionais'),
-    }),
-    execute: async (params) => {
-      const result = await appendToSheet({
-        spreadsheetId: process.env.GOOGLE_LEADS_SHEET_ID!,
-        range: 'Leads!A:E',
-        values: [[
-          params.name,
-          params.phone,
-          params.email || '-',
-          params.interest,
-          params.notes || '-',
-          new Date().toISOString(),
-        ]],
-      });
-      return { success: true, row: result.updatedRange };
-    },
-  }),
-};
-```
-
----
-
-## 7. Gestão de Estado das Conversas
-
-### 7.1 Modelo de Estado de Thread
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      CICLO DE VIDA DE UMA THREAD                            │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-                    ┌─────────────────┐
-                    │     CREATED     │
-                    │  (Nova thread)  │
-                    └────────┬────────┘
-                             │
-                             │ Primeira mensagem recebida
-                             ▼
-                    ┌─────────────────┐
-                    │     ACTIVE      │
-                    │ (Em conversa)   │◄──────────────────┐
-                    └────────┬────────┘                   │
-                             │                            │
-           ┌─────────────────┼─────────────────┐          │
-           │                 │                 │          │
-           ▼                 ▼                 ▼          │
-    ┌─────────────┐   ┌─────────────┐   ┌─────────────┐  │
-    │  PENDING    │   │  QUALIFIED  │   │   BOOKED    │  │
-    │(Aguardando) │   │  (Lead OK)  │   │ (Agendado)  │  │
-    └──────┬──────┘   └──────┬──────┘   └──────┬──────┘  │
-           │                 │                 │          │
-           │                 │                 │          │
-           └─────────────────┴─────────────────┘          │
-                             │                            │
-                             │ Nova mensagem              │
-                             └────────────────────────────┘
-                             │
-                             │ Inatividade > 24h
-                             ▼
-                    ┌─────────────────┐
-                    │    ARCHIVED     │
-                    │  (Arquivada)    │
-                    └─────────────────┘
-
-
-TRANSIÇÕES DE ESTADO:
-─────────────────────
-• CREATED → ACTIVE: Automático na primeira mensagem
-• ACTIVE → PENDING: Usuário não respondeu (timeout interno)
-• ACTIVE → QUALIFIED: IA identificou interesse genuíno
-• ACTIVE → BOOKED: Reunião agendada via tool
-• * → ARCHIVED: Job diário arquiva threads inativas
-```
-
-### 7.2 Índices e Performance
-
-```sql
--- Índices críticos para performance do webhook
-
--- Busca rápida de thread por telefone
-CREATE INDEX idx_threads_external_id ON threads(external_id);
-
--- Ordenação de mensagens por thread
-CREATE INDEX idx_messages_thread_time ON messages(thread_id, created_at DESC);
-
--- Busca de agentes ativos
-CREATE INDEX idx_agents_active ON agents(is_active) WHERE is_active = true;
-
--- Busca de conhecimento por agente e tópico
-CREATE INDEX idx_knowledge_agent_topic ON knowledge_base(agent_id, topic);
-```
-
----
-
-## 8. Integrações Externas
-
-### 8.1 Mapa de Integrações
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           INTEGRAÇÕES EXTERNAS                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   ┌───────────────────────────────────────────────────────────────────┐    │
-│   │                          META WHATSAPP API                         │    │
-│   ├───────────────────────────────────────────────────────────────────┤    │
-│   │  Propósito: Receber e enviar mensagens de WhatsApp                │    │
-│   │                                                                    │    │
-│   │  Credenciais Necessárias:                                         │    │
-│   │  • WHATSAPP_TOKEN (Bearer Token)                                  │    │
-│   │  • WHATSAPP_PHONE_ID (ID do número de telefone)                   │    │
-│   │  • WHATSAPP_VERIFY_TOKEN (Verificação do Webhook)                 │    │
-│   │  • WHATSAPP_APP_SECRET (Validação de assinatura)                  │    │
-│   │                                                                    │    │
-│   │  Endpoints Utilizados:                                            │    │
-│   │  • POST /v18.0/{phone_id}/messages (Enviar)                       │    │
-│   │  • Webhook: POST /api/webhooks/whatsapp (Receber)                 │    │
-│   └───────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-│   ┌───────────────────────────────────────────────────────────────────┐    │
-│   │                         GOOGLE CALENDAR API                        │    │
-│   ├───────────────────────────────────────────────────────────────────┤    │
-│   │  Propósito: Criar eventos/reuniões automaticamente                │    │
-│   │                                                                    │    │
-│   │  Fluxo de Autenticação: OAuth 2.0                                 │    │
-│   │  1. Usuário conecta conta no /dashboard/integrations              │    │
-│   │  2. Sistema obtém refresh_token                                   │    │
-│   │  3. Token armazenado criptografado em `integrations`              │    │
-│   │                                                                    │    │
-│   │  Scopes Necessários:                                              │    │
-│   │  • https://www.googleapis.com/auth/calendar.events                │    │
-│   │                                                                    │    │
-│   │  Endpoints Utilizados:                                            │    │
-│   │  • POST /calendar/v3/calendars/primary/events (Criar evento)      │    │
-│   └───────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-│   ┌───────────────────────────────────────────────────────────────────┐    │
-│   │                         GOOGLE SHEETS API                          │    │
-│   ├───────────────────────────────────────────────────────────────────┤    │
-│   │  Propósito: Registrar leads em planilha                           │    │
-│   │                                                                    │    │
-│   │  Fluxo: Mesmo OAuth do Calendar (scope adicional)                 │    │
-│   │                                                                    │    │
-│   │  Scopes Adicionais:                                               │    │
-│   │  • https://www.googleapis.com/auth/spreadsheets                   │    │
-│   │                                                                    │    │
-│   │  Endpoints Utilizados:                                            │    │
-│   │  • POST /v4/spreadsheets/{id}/values/{range}:append               │    │
-│   └───────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-│   ┌───────────────────────────────────────────────────────────────────┐    │
-│   │                           OPENAI API                               │    │
-│   ├───────────────────────────────────────────────────────────────────┤    │
-│   │  Propósito: Processamento de linguagem natural                    │    │
-│   │                                                                    │    │
-│   │  Via: Vercel AI SDK (abstração)                                   │    │
-│   │                                                                    │    │
-│   │  Modelos Suportados:                                              │    │
-│   │  • gpt-4o (Padrão - melhor qualidade)                             │    │
-│   │  • gpt-4o-mini (Economia - alto volume)                           │    │
-│   │  • gpt-4-turbo (Contexto longo)                                   │    │
-│   │                                                                    │    │
-│   │  Configurações por Agente (model_config):                         │    │
-│   │  • model: string                                                  │    │
-│   │  • temperature: 0-1                                               │    │
-│   │  • maxTokens: number                                              │    │
-│   └───────────────────────────────────────────────────────────────────┘    │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 8.2 Segurança de Credenciais
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                      ARMAZENAMENTO DE CREDENCIAIS                           │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   VARIÁVEIS DE AMBIENTE (Não mutáveis):                                    │
-│   ├── OPENAI_API_KEY                                                       │
-│   ├── WHATSAPP_TOKEN                                                       │
-│   ├── WHATSAPP_PHONE_ID                                                    │
-│   ├── WHATSAPP_VERIFY_TOKEN                                                │
-│   ├── WHATSAPP_APP_SECRET                                                  │
-│   └── ENCRYPTION_KEY (Para criptografar integrations.credentials)          │
-│                                                                             │
-│   BANCO DE DADOS (Mutáveis - por usuário):                                 │
-│   └── integrations.credentials (JSON criptografado com AES-256-GCM)        │
-│       ├── google.access_token                                              │
-│       ├── google.refresh_token                                             │
-│       └── google.token_expiry                                              │
-│                                                                             │
-│   FLUXO DE CRIPTOGRAFIA:                                                   │
-│   1. Usuário conecta conta Google                                          │
-│   2. OAuth retorna tokens                                                  │
-│   3. Tokens criptografados com ENCRYPTION_KEY                              │
-│   4. JSON criptografado salvo em integrations.credentials                  │
-│   5. Na leitura: decripta, valida expiração, renova se necessário          │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 9. Segurança e Autenticação
-
-### 9.1 Camadas de Segurança
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          CAMADAS DE SEGURANÇA                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│   LAYER 1: Autenticação de Usuário (Dashboard)                             │
-│   ├── NextAuth.js v5                                                       │
-│   ├── Providers: Credentials (Email/Password) ou OAuth (Google)            │
-│   ├── Sessão: JWT com rotação                                              │
-│   └── Middleware: Protege todas as rotas /dashboard/*                      │
-│                                                                             │
-│   LAYER 2: Validação de Webhook                                            │
-│   ├── Verificação de X-Hub-Signature-256                                   │
-│   ├── Validação de payload com Zod                                         │
-│   └── Rate limiting por IP (10 req/s)                                      │
-│                                                                             │
-│   LAYER 3: Autorização de Recursos                                         │
-│   ├── Usuário só acessa seus próprios agentes/threads                      │
-│   ├── Verificação de ownership em todas as queries                         │
-│   └── Server Actions validam permissões                                    │
-│                                                                             │
-│   LAYER 4: Proteção de Dados Sensíveis                                     │
-│   ├── Credenciais criptografadas no DB                                     │
-│   ├── Logs não contêm tokens/secrets                                       │
-│   └── Messages podem ser purged após período                               │
-│                                                                             │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 9.2 Middleware de Proteção
-
-```typescript
-// /middleware.ts
-
-import { auth } from '@/lib/auth';
-import { NextResponse } from 'next/server';
-import type { NextRequest } from 'next/server';
-
-export async function middleware(request: NextRequest) {
-  const { pathname } = request.nextUrl;
-  
-  // Rotas públicas
-  if (
-    pathname === '/' ||
-    pathname.startsWith('/api/webhooks') ||
-    pathname.startsWith('/api/auth')
-  ) {
-    return NextResponse.next();
-  }
-  
-  // Rotas protegidas
-  if (pathname.startsWith('/dashboard')) {
-    const session = await auth();
+export class StageMachine {
+    private session: Session;
+    private agent: Agent;
+    private stages: AgentStage[];
     
-    if (!session?.user) {
-      return NextResponse.redirect(new URL('/login', request.url));
+    async processMessage(message: string): Promise<AIResponse> {
+        // 1. Check if we can advance to next stage
+        const transition = await this.evaluateTransition(message);
+        
+        if (transition.shouldAdvance) {
+            // 2. Execute exit actions of current stage
+            await this.executeActions(this.currentStage, 'exit');
+            
+            // 3. Move to next stage
+            this.session.currentStageId = transition.nextStageId;
+            
+            // 4. Execute entry actions of new stage
+            await this.executeActions(this.nextStage, 'entry');
+        }
+        
+        // 5. Build prompt with stage context
+        const prompt = this.buildPrompt();
+        
+        // 6. Generate AI response
+        const response = await this.generateResponse(prompt, message);
+        
+        // 7. Extract and save variables from response
+        await this.extractVariables(response);
+        
+        return response;
     }
-  }
-  
-  return NextResponse.next();
 }
-
-export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico).*)'],
-};
 ```
 
 ---
 
-## 10. Decisões de Design
+## 🔌 Integration Architecture
 
-### 10.1 ADRs (Architecture Decision Records)
+### Google Calendar
 
-#### ADR-001: Server Actions vs API Routes para Mutações
+```typescript
+// /src/server/integrations/google-calendar.ts
 
-**Contexto:** Precisamos decidir como o frontend vai comunicar mutações para o backend.
+interface AvailableSlot {
+    start: Date;
+    end: Date;
+    formatted: string; // "Segunda, 16/12 às 14:00"
+}
 
-**Decisão:** Usar **Server Actions** para todas as mutações do dashboard.
+export class GoogleCalendarService {
+    // List available slots based on config
+    async listAvailableSlots(config: {
+        duration: number;       // 30, 60 minutes
+        daysAhead: number;      // 7, 14, 30 days
+        timeRange: [string, string]; // ['09:00', '18:00']
+        excludeWeekends: boolean;
+    }): Promise<AvailableSlot[]>
+    
+    // Create a new calendar event
+    async createEvent(event: {
+        title: string;
+        start: Date;
+        end: Date;
+        attendeeEmail: string;
+        description?: string;
+    }): Promise<{ eventId: string; link: string }>
+}
+```
 
-**Justificativa:**
-- Menos boilerplate que API Routes
-- Type safety end-to-end automático
-- Integração nativa com forms do React
-- Melhor DX com useFormState/useOptimisticAction
+### Google Sheets
 
-**Consequências:**
-- ✅ Código mais limpo
-- ✅ Menos arquivos para manter
-- ⚠️ Requer entendimento de 'use server'
+```typescript
+// /src/server/integrations/google-sheets.ts
 
----
-
-#### ADR-002: Drizzle ORM vs Prisma
-
-**Contexto:** Escolher ORM para acesso ao banco de dados.
-
-**Decisão:** Usar **Drizzle ORM**.
-
-**Justificativa:**
-- Performance superior (SQL-like queries)
-- Bundle size menor (melhor para serverless)
-- Melhor DX para queries complexas
-- Migrations mais previsíveis
-
-**Consequências:**
-- ✅ Queries mais performáticas
-- ✅ Menor cold start em serverless
-- ⚠️ Comunidade menor que Prisma
-
----
-
-#### ADR-003: Vercel AI SDK vs LangChain
-
-**Contexto:** Escolher framework para orquestração de IA.
-
-**Decisão:** Usar **Vercel AI SDK**.
-
-**Justificativa:**
-- Integração nativa com Next.js
-- Tool calling simplificado
-- Streaming de respostas otimizado
-- Menos abstração = mais controle
-
-**Consequências:**
-- ✅ Setup mais simples
-- ✅ Menos dependências
-- ⚠️ Menos features de orquestração complexa
+export class GoogleSheetsService {
+    // Append lead data to spreadsheet
+    async appendRow(config: {
+        spreadsheetId: string;
+        sheetName: string;
+        data: Record<string, string>; // { Nome: "João", Email: "..." }
+    }): Promise<void>
+}
+```
 
 ---
 
-#### ADR-004: Neon vs Supabase vs PlanetScale
+## 🎨 Frontend Architecture
 
-**Contexto:** Escolher provider de banco de dados serverless.
+### Builder UI Tabs
 
-**Decisão:** Usar **Neon**.
+```
+/dashboard/agents/[id]/builder
+├── Tab 1: Personalidade
+│   ├── Nome do agente
+│   ├── Avatar upload
+│   ├── Tom de voz (formal/informal)
+│   ├── Usar emojis?
+│   └── System prompt principal
+│
+├── Tab 2: Cérebro (Brain)
+│   ├── Upload de arquivos (PDF/TXT)
+│   ├── Texto livre (FAQ, info)
+│   └── Lista de knowledge entries
+│
+├── Tab 3: Estágios (Flow)
+│   ├── Drag & drop stage list
+│   ├── Stage config modal:
+│   │   ├── Nome
+│   │   ├── Condição de entrada
+│   │   ├── Variáveis obrigatórias
+│   │   ├── Prompt do estágio
+│   │   └── Ação automática
+│   └── Visual flow preview
+│
+├── Tab 4: Integrações
+│   ├── Google Calendar (OAuth)
+│   ├── Google Sheets (OAuth)
+│   └── WhatsApp (Meta API)
+│
+└── Tab 5: Testar
+    └── Chat widget (sidebar)
+```
 
-**Justificativa:**
-- Postgres nativo (sem vendor lock-in)
-- Branching de bancos para staging
-- Pricing competitivo
-- Cold start extremamente rápido
+### State Management
 
-**Consequências:**
-- ✅ DX familiar para quem conhece Postgres
-- ✅ Features avançadas (branching, compute scaling)
-- ⚠️ Menos integrado que Supabase (sem auth built-in)
+```typescript
+// /src/stores/builder-store.ts (Zustand)
+
+interface BuilderStore {
+    agent: Agent;
+    stages: AgentStage[];
+    currentTab: 'personality' | 'brain' | 'stages' | 'integrations' | 'test';
+    
+    // Actions
+    updateAgent: (data: Partial<Agent>) => void;
+    addStage: (stage: AgentStage) => void;
+    updateStage: (id: string, data: Partial<AgentStage>) => void;
+    reorderStages: (fromIndex: number, toIndex: number) => void;
+    removeStage: (id: string) => void;
+    saveChanges: () => Promise<void>;
+}
+```
 
 ---
 
-### 10.2 Trade-offs Conhecidos
+## 📡 API Endpoints
 
-| Decisão | Trade-off | Mitigação |
-|---------|-----------|-----------|
-| RSC por padrão | Complexidade de hidratação | Documentação clara sobre quando usar 'use client' |
-| Server Actions | Não funciona offline | Não é requisito para este sistema |
-| Neon Serverless | Cold starts em baixo uso | Provisioned compute em produção |
-| Vercel AI SDK | Menos flexível que LangChain | Suficiente para os use cases atuais |
-
----
-
-## Apêndice: Glossário
-
-| Termo | Definição |
-|-------|-----------|
-| **Thread** | Uma conversa com um contato específico (identificado por telefone) |
-| **Agent** | Configuração de um assistente virtual (prompt, modelo, ferramentas) |
-| **Knowledge Base** | Conjunto de tópicos com conteúdo que alimenta o agente |
-| **Tool** | Função que a IA pode chamar para executar ações externas |
-| **Webhook** | Endpoint que recebe notificações de serviços externos |
-| **RSC** | React Server Components - componentes que renderizam no servidor |
-| **Server Action** | Função do servidor que pode ser chamada diretamente do cliente |
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/agents` | List user's agents |
+| `POST` | `/api/agents` | Create new agent |
+| `GET` | `/api/agents/[id]` | Get agent details |
+| `PATCH` | `/api/agents/[id]` | Update agent |
+| `DELETE` | `/api/agents/[id]` | Delete agent |
+| `GET` | `/api/agents/[id]/stages` | List agent stages |
+| `POST` | `/api/agents/[id]/stages` | Create stage |
+| `PATCH` | `/api/agents/[id]/stages/[stageId]` | Update stage |
+| `DELETE` | `/api/agents/[id]/stages/[stageId]` | Delete stage |
+| `POST` | `/api/chat` | Send message (Stage Machine) |
+| `POST` | `/api/knowledge` | Add knowledge entry |
+| `POST` | `/api/integrations/google/connect` | OAuth callback |
+| `POST` | `/api/webhooks/whatsapp` | WhatsApp webhook |
 
 ---
 
-> 📋 **Próximos Passos:**
-> 1. ✅ Criar ARCHITECTURE.md (Este documento)
-> 2. ⏳ Criar schema.ts (Drizzle Schema)
-> 3. ⏳ Configurar layout.tsx (Sidebar + Conteúdo)
-> 4. ⏳ Implementar hook de conexão com IA
+## 🔐 Security
+
+- **Authentication**: NextAuth.js with Google OAuth
+- **Authorization**: User can only access their own agents/data
+- **API Keys**: Stored encrypted in `integrations.credentials`
+- **Environment**: All secrets in environment variables
+
+---
+
+## 📈 Scalability Considerations
+
+1. **Sessions table**: Index on `threadId` for fast lookups
+2. **Knowledge Base**: Vector embeddings for semantic search
+3. **Message history**: Pagination and archival strategy
+4. **Rate limiting**: OpenAI API calls per minute
+5. **Caching**: React Query for frontend, Redis (future) for backend
