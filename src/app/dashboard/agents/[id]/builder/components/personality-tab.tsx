@@ -30,9 +30,10 @@ const LLM_PROVIDERS = {
         name: 'Google Gemini',
         icon: '✨',
         models: [
-            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Mais inteligente)' },
-            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Rápido)' },
-            { id: 'gemini-2.0-flash-exp', name: 'Gemini 2.0 Flash (Experimental)' },
+            { id: 'gemini-2.5-pro-preview-06-05', name: 'Gemini 2.5 Pro (Mais recente)' },
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash (Rápido)' },
+            { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro (Estável)' },
+            { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash (Econômico)' },
         ],
         envVar: 'GOOGLE_GENERATIVE_AI_API_KEY'
     },
@@ -40,9 +41,10 @@ const LLM_PROVIDERS = {
         name: 'Anthropic Claude',
         icon: '🧠',
         models: [
-            { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (Recomendado)' },
-            { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus (Mais poderoso)' },
-            { id: 'claude-3-haiku-20240307', name: 'Claude 3 Haiku (Mais rápido)' },
+            { id: 'claude-sonnet-4-20250514', name: 'Claude 4.5 Sonnet (Mais recente)' },
+            { id: 'claude-opus-4-20250514', name: 'Claude 4.5 Opus (Mais poderoso)' },
+            { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (Estável)' },
+            { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku (Mais rápido)' },
         ],
         envVar: 'ANTHROPIC_API_KEY'
     }
