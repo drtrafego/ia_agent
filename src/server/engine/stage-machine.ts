@@ -233,25 +233,35 @@ Seu objetivo é avançar naturalmente para o próximo estágio APENAS quando o l
         }
 
         // Análise com IA para extração e transição
+        const existingVars = session.variables || {};
+        const requiredVars = currentStage.requiredVariables || [];
+
         try {
-            const analysisPrompt = `Analise esta conversa e responda em JSON:
+            // Construir lista dinâmica de variáveis a procurar
+            const varsToExtract = [
+                ...requiredVars,
+                'nome', 'area', 'nicho', 'segmento', 'empresa', 'cargo',
+                'desafio', 'dor', 'problema', 'tempo_problema',
+                'faturamento', 'urgencia',
+                'email', 'telefone', 'data_reuniao', 'horario_reuniao'
+            ];
+
+            const analysisPrompt = `Analise esta conversa e extraia informações:
 
 MENSAGEM DO USUÁRIO: "${userMessage}"
 RESPOSTA DO AGENTE: "${agentResponse}"
-ESTÁGIO ATUAL: ${currentStage.name} (${currentStage.type})
-${nextStage ? `PRÓXIMO ESTÁGIO: ${nextStage.name} (${nextStage.type})` : 'Este é o último estágio.'}
+ESTÁGIO ATUAL: ${currentStage.name}
+VARIÁVEIS JÁ COLETADAS: ${JSON.stringify(existingVars)}
+VARIÁVEIS OBRIGATÓRIAS DO ESTÁGIO: ${JSON.stringify(requiredVars)}
 
-Extraia variáveis e decida se deve avançar:
-
-Para IDENTIFICAÇÃO, procure: nome, empresa, cargo, nicho/segmento
-Para DIAGNÓSTICO, procure: dor_principal, volume_atendimento, ferramenta_atual
-Para AGENDAMENTO, procure: horario_preferido, email, telefone
+IMPORTANTE: Extraia TODAS as informações que aparecem na mensagem do usuário.
+Para área/nicho de atuação, use "area" como nome da variável.
+Para desafios/problemas, use "desafio" como nome da variável.
 
 Responda APENAS com JSON válido:
 {
-  "extracted": { "variável": "valor" },
-  "shouldAdvance": true/false,
-  "reason": "motivo da decisão"
+  "extracted": { "variavel": "valor" },
+  "reason": "resumo do que foi coletado"
 }`;
 
             const { text: analysisJson } = await generateText({
@@ -262,14 +272,42 @@ Responda APENAS com JSON válido:
 
             // Parse JSON da resposta
             const jsonMatch = analysisJson.match(/\{[\s\S]*\}/);
+            let extractedVars: Record<string, any> = {};
+
             if (jsonMatch) {
-                const analysis = JSON.parse(jsonMatch[0]);
-                return {
-                    shouldAdvance: analysis.shouldAdvance && nextStage !== null,
-                    nextStageId: analysis.shouldAdvance && nextStage ? nextStage.id : null,
-                    extractedVars: analysis.extracted || {}
-                };
+                try {
+                    const analysis = JSON.parse(jsonMatch[0]);
+                    extractedVars = analysis.extracted || {};
+                } catch {
+                    console.log('[StageMachine] Falha ao parsear JSON da análise');
+                }
             }
+
+            // Combinar variáveis existentes + novas
+            const allVars = { ...existingVars, ...extractedVars };
+
+            // Mapear sinônimos para variáveis obrigatórias
+            if (allVars['nicho'] && !allVars['area']) allVars['area'] = allVars['nicho'];
+            if (allVars['segmento'] && !allVars['area']) allVars['area'] = allVars['segmento'];
+            if (allVars['dor'] && !allVars['desafio']) allVars['desafio'] = allVars['dor'];
+            if (allVars['problema'] && !allVars['desafio']) allVars['desafio'] = allVars['problema'];
+
+            // Verificar se todas as variáveis obrigatórias foram coletadas
+            const hasAllRequired = requiredVars.length === 0 ||
+                requiredVars.every((v: string) => allVars[v] !== undefined && allVars[v] !== '');
+
+            // Decidir se avançar
+            const shouldAdvance = hasAllRequired && nextStage !== null;
+
+            if (shouldAdvance) {
+                console.log(`[StageMachine] ✅ Avançando: ${currentStage.name} → ${nextStage?.name}. Vars: ${JSON.stringify(allVars)}`);
+            }
+
+            return {
+                shouldAdvance,
+                nextStageId: shouldAdvance && nextStage ? nextStage.id : null,
+                extractedVars
+            };
         } catch (error) {
             console.error('Erro na análise de transição:', error);
         }
