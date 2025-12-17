@@ -82,15 +82,70 @@ export class StageMachine {
             orderBy: asc(agentStages.order)
         });
 
-        // 5. Buscar contexto (RAG)
+        // 5. PRÉ-VERIFICAÇÃO: Checar se estágio atual está completo ANTES de responder
+        let activeStage = currentStage;
+        const existingVars = session.variables as Record<string, any> || {};
+        const requiredVars = (currentStage.requiredVariables as string[]) || [];
+
+        // Extrair variáveis da mensagem atual de forma simples
+        const extractedFromMessage: Record<string, any> = {};
+        const lowerMessage = userMessage.toLowerCase();
+
+        // Detectar área/nicho de atuação
+        const areaPatterns = [
+            /(?:clínica|clinica|consultório|loja|empresa|negócio|trabalho com|área|nicho|segmento|setor)[:\s]+(.+)/i,
+            /(?:sou|tenho|trabalho em|atuo com|meu negócio é)[:\s]*(?:uma?\s+)?(.+)/i,
+        ];
+        for (const pattern of areaPatterns) {
+            const match = userMessage.match(pattern);
+            if (match && match[1]) {
+                extractedFromMessage['area'] = match[1].trim();
+                break;
+            }
+        }
+
+        // Detectar nome simples (mensagem curta, provavelmente só o nome)
+        if (userMessage.length < 30 && !userMessage.includes('?') && !lowerMessage.includes(' ')) {
+            extractedFromMessage['nome'] = userMessage.trim();
+        }
+
+        // Combinar variáveis existentes + extraídas
+        const allVars = { ...existingVars, ...extractedFromMessage };
+
+        // Verificar se todas as variáveis obrigatórias do estágio atual estão completas
+        const hasAllRequired = requiredVars.length === 0 ||
+            requiredVars.every(v => allVars[v] !== undefined && allVars[v] !== '');
+
+        // Se estágio atual está completo, avançar para o próximo ANTES de responder
+        if (hasAllRequired && requiredVars.length > 0) {
+            const currentIndex = allStages.findIndex(s => s.id === currentStage.id);
+            const nextStage = currentIndex < allStages.length - 1 ? allStages[currentIndex + 1] : null;
+
+            if (nextStage) {
+                console.log(`[StageMachine] 🚀 Pré-transição: ${currentStage.name} → ${nextStage.name}`);
+                activeStage = nextStage;
+
+                // Atualizar sessão para o novo estágio
+                await db.update(sessions)
+                    .set({
+                        currentStageId: nextStage.id,
+                        previousStageId: currentStage.id,
+                        stageHistory: [...(session.stageHistory as string[]), nextStage.id],
+                        variables: allVars
+                    })
+                    .where(eq(sessions.id, session.id));
+            }
+        }
+
+        // 6. Buscar contexto (RAG)
         const context = await brain.retrieveContext(agentId, userMessage);
 
-        // 6. Obter modelo configurado
+        // 7. Obter modelo configurado
         const modelConfig = agent.modelConfig as any || { provider: 'openai', model: 'gpt-4o-mini' };
         const model = getModel(modelConfig.provider || 'openai', modelConfig.model || 'gpt-4o-mini');
 
-        // 7. Construir prompt avançado para resposta
-        const systemPrompt = this.buildAdvancedPrompt(agent, currentStage, allStages, session, context);
+        // 8. Construir prompt avançado para resposta (usando estágio ATIVO, não o antigo)
+        const systemPrompt = this.buildAdvancedPrompt(agent, activeStage, allStages, session, context);
 
         // 8. Gerar resposta + análise de transição em uma chamada
         const { text: fullResponse } = await generateText({
