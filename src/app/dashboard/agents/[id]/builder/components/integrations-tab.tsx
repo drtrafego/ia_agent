@@ -19,8 +19,21 @@ export function IntegrationsTab() {
         }
     }, [agent]);
 
-    function handleConnectGoogle() {
-        window.location.href = '/api/auth/google'; // Rota correta para OAuth do Google
+    async function handleConnectGoogle() {
+        try {
+            const response = await fetch('/api/auth/google');
+            const data = await response.json();
+
+            if (data.authUrl) {
+                window.location.href = data.authUrl;
+            } else if (data.error) {
+                console.error('Erro ao conectar Google:', data.error);
+                alert('Erro ao conectar com Google. Verifique a configuração.');
+            }
+        } catch (error) {
+            console.error('Erro ao conectar Google:', error);
+            alert('Erro ao conectar com Google.');
+        }
     }
 
     return (

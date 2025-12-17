@@ -92,9 +92,20 @@ function IntegrationsContent() {
         },
     ];
 
-    const handleConnect = (integration: Integration) => {
+    const handleConnect = async (integration: Integration) => {
         if (integration.connectUrl) {
-            window.location.href = integration.connectUrl;
+            try {
+                const response = await fetch(integration.connectUrl);
+                const data = await response.json();
+
+                if (data.authUrl) {
+                    window.location.href = data.authUrl;
+                } else if (data.error) {
+                    setNotification({ type: 'error', message: data.error });
+                }
+            } catch (error) {
+                setNotification({ type: 'error', message: 'Erro ao conectar integração' });
+            }
         }
     };
 

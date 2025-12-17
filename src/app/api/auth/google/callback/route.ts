@@ -15,6 +15,9 @@ const REDIRECT_URI = process.env.NEXTAUTH_URL
     ? `${process.env.NEXTAUTH_URL}/api/auth/google/callback`
     : 'http://localhost:3000/api/auth/google/callback';
 
+// Base URL for redirects
+const BASE_URL = process.env.NEXTAUTH_URL || 'http://localhost:3000';
+
 // TODO: Obter do contexto de auth real
 const DEFAULT_USER_ID = process.env.DEFAULT_USER_ID || '00000000-0000-0000-0000-000000000001';
 
@@ -24,11 +27,11 @@ export async function GET(request: NextRequest) {
     const error = searchParams.get('error');
 
     if (error) {
-        return NextResponse.redirect('/dashboard/integrations?error=access_denied');
+        return NextResponse.redirect(`${BASE_URL}/dashboard/integrations?error=access_denied`);
     }
 
     if (!code) {
-        return NextResponse.redirect('/dashboard/integrations?error=no_code');
+        return NextResponse.redirect(`${BASE_URL}/dashboard/integrations?error=no_code`);
     }
 
     try {
@@ -48,7 +51,7 @@ export async function GET(request: NextRequest) {
         if (!tokenResponse.ok) {
             const errorData = await tokenResponse.json();
             console.error('[OAuth2] Token exchange failed:', errorData);
-            return NextResponse.redirect('/dashboard/integrations?error=token_exchange');
+            return NextResponse.redirect(`${BASE_URL}/dashboard/integrations?error=token_exchange`);
         }
 
         const tokens = await tokenResponse.json();
@@ -99,9 +102,9 @@ export async function GET(request: NextRequest) {
             });
         }
 
-        return NextResponse.redirect('/dashboard/integrations?success=google_connected');
+        return NextResponse.redirect(`${BASE_URL}/dashboard/integrations?success=google_connected`);
     } catch (error) {
         console.error('[OAuth2] Exception:', error);
-        return NextResponse.redirect('/dashboard/integrations?error=exception');
+        return NextResponse.redirect(`${BASE_URL}/dashboard/integrations?error=exception`);
     }
 }

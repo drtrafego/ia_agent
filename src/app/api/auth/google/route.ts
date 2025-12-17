@@ -32,5 +32,6 @@ export async function GET() {
     authUrl.searchParams.set('access_type', 'offline');
     authUrl.searchParams.set('prompt', 'consent');
 
-    return NextResponse.redirect(authUrl.toString());
+    // Retornar a URL como JSON para o frontend fazer o redirect
+    return NextResponse.json({ authUrl: authUrl.toString() });
 }

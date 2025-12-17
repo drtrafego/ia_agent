@@ -6,8 +6,9 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { useState, useRef, useEffect } from 'react';
-import { Send, Bot, User as UserIcon, Loader2, RotateCcw, ExternalLink } from 'lucide-react';
+import { Send, Bot, User as UserIcon, Loader2, RotateCcw, ExternalLink, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { VariableInspector } from '@/components/agent-builder';
 
 type Message = {
     role: 'user' | 'assistant';
@@ -23,6 +24,13 @@ export function TestTab() {
     const [threadId, setThreadId] = useState<string | null>(null);
     const [sessionStartTime, setSessionStartTime] = useState<Date | null>(null);
     const scrollRef = useRef<HTMLDivElement>(null);
+
+    // Estado para variáveis e estágios
+    const [threadState, setThreadState] = useState<{
+        currentStageId: string | null;
+        variables: Record<string, unknown>;
+        stages: any[];
+    }>({ currentStageId: null, variables: {}, stages: [] });
 
     useEffect(() => {
         if (scrollRef.current) {
@@ -97,6 +105,11 @@ export function TestTab() {
 
             const assistantMessage: Message = { role: 'assistant', content: data.response, timestamp: new Date() };
             setMessages(prev => [...prev, assistantMessage]);
+
+            // Buscar estado atualizado da thread
+            if (data.threadId) {
+                fetchThreadState(data.threadId);
+            }
         } catch (error) {
             const errorMessage: Message = { role: 'assistant', content: `❌ Erro: ${String(error)}`, timestamp: new Date() };
             setMessages(prev => [...prev, errorMessage]);
@@ -104,6 +117,31 @@ export function TestTab() {
             setIsLoading(false);
         }
     }
+
+    // Buscar estado da thread (estágio atual + variáveis)
+    async function fetchThreadState(tid: string) {
+        try {
+            const res = await fetch(`/api/threads/${tid}/state`);
+            const data = await res.json();
+
+            if (!data.error) {
+                setThreadState({
+                    currentStageId: data.currentStageId,
+                    variables: data.variables || {},
+                    stages: data.stages || [],
+                });
+            }
+        } catch (error) {
+            console.error('Erro ao buscar estado:', error);
+        }
+    }
+
+    // Atualizar estado quando threadId mudar
+    useEffect(() => {
+        if (threadId) {
+            fetchThreadState(threadId);
+        }
+    }, [threadId]);
 
     function handleReset() {
         setMessages([]);
@@ -187,10 +225,20 @@ export function TestTab() {
                 </CardFooter>
             </Card>
 
-            {/* Debug Info Sidebar */}
+            {/* Debug Info Sidebar with VariableInspector */}
             <Card className="w-80 h-[600px] hidden md:flex flex-col">
-                <CardHeader className="border-b py-3">
+                <CardHeader className="border-b py-3 flex flex-row items-center justify-between">
                     <CardTitle className="text-sm font-medium">Debug Sessão</CardTitle>
+                    {threadId && (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => fetchThreadState(threadId)}
+                            title="Atualizar estado"
+                        >
+                            <RefreshCw className="h-3 w-3" />
+                        </Button>
+                    )}
                 </CardHeader>
                 <CardContent className="p-4 space-y-4 overflow-auto flex-1">
                     <div>
@@ -223,6 +271,17 @@ export function TestTab() {
                             <div className="text-xs font-mono bg-muted p-2 rounded">
                                 {sessionStartTime.toLocaleTimeString('pt-BR')}
                             </div>
+                        </div>
+                    )}
+
+                    {/* Integração do VariableInspector */}
+                    {threadId && threadState.stages.length > 0 && (
+                        <div className="border-t pt-4 mt-4">
+                            <VariableInspector
+                                stages={threadState.stages}
+                                currentStageId={threadState.currentStageId || ''}
+                                variables={threadState.variables}
+                            />
                         </div>
                     )}
 

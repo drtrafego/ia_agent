@@ -65,6 +65,7 @@ export const threadStatusEnum = pgEnum('thread_status', [
 export const integrationProviderEnum = pgEnum('integration_provider', [
     'google',    // Google Calendar + Sheets
     'meta',      // WhatsApp Business API
+    'whatsapp',  // WhatsApp (alternative naming)
     'openai',    // Modelos de IA adicionais
 ]);
 
@@ -757,7 +758,7 @@ export type NewSession = typeof sessions.$inferInsert;
 
 export type MessageRole = 'user' | 'assistant' | 'system';
 export type ThreadStatus = 'active' | 'pending' | 'qualified' | 'booked' | 'archived';
-export type IntegrationProvider = 'google' | 'meta' | 'openai';
+export type IntegrationProvider = 'google' | 'meta' | 'whatsapp' | 'openai';
 export type ToolCallStatus = 'pending' | 'success' | 'failed';
 export type StageType = 'identify' | 'diagnosis' | 'schedule' | 'handoff' | 'custom';
 export type SessionStatus = 'active' | 'completed' | 'abandoned';
