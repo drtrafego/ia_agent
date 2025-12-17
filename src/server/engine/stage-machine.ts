@@ -87,9 +87,41 @@ export class StageMachine {
         const existingVars = session.variables as Record<string, any> || {};
         const requiredVars = (currentStage.requiredVariables as string[]) || [];
 
+        // 5a. DETECÇÃO DE INTENÇÃO DIRETA: Pular para agendamento se lead demonstrar interesse
+        const lowerMessage = userMessage.toLowerCase();
+        const buyingIntentKeywords = [
+            'quero agendar', 'quero marcar', 'quero contratar', 'quero fazer',
+            'gostaria de agendar', 'posso agendar', 'podemos marcar', 'vamos marcar',
+            'agendar uma reunião', 'agendar uma chamada', 'agendar uma call',
+            'quero ver na prática', 'quero uma demonstração', 'quero conhecer',
+            'quando podemos', 'qual horário', 'tem horário',
+            'me interessou', 'tenho interesse', 'quero saber mais sobre preço',
+        ];
+
+        const hasBuyingIntent = buyingIntentKeywords.some(kw => lowerMessage.includes(kw));
+
+        if (hasBuyingIntent && currentStage.type !== 'schedule' && currentStage.type !== 'handoff') {
+            // Encontrar estágio de agendamento
+            const scheduleStage = allStages.find(s => s.type === 'schedule');
+
+            if (scheduleStage) {
+                console.log(`[StageMachine] 🎯 Intenção de compra detectada! Pulando para: ${scheduleStage.name}`);
+                activeStage = scheduleStage;
+
+                // Atualizar sessão direto para agendamento
+                await db.update(sessions)
+                    .set({
+                        currentStageId: scheduleStage.id,
+                        previousStageId: currentStage.id,
+                        stageHistory: [...(session.stageHistory as string[]), scheduleStage.id],
+                        variables: existingVars
+                    })
+                    .where(eq(sessions.id, session.id));
+            }
+        }
+
         // Extrair variáveis da mensagem atual de forma simples
         const extractedFromMessage: Record<string, any> = {};
-        const lowerMessage = userMessage.toLowerCase();
 
         // Detectar área/nicho de atuação
         const areaPatterns = [
