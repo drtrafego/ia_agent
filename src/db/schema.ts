@@ -715,6 +715,28 @@ export const whatsappInstances = pgTable('whatsapp_instances', {
         .where(sql`${table.isMain} = true`), // Apenas uma instância principal por usuário
 }));
 
+/**
+ * Tabela para persistência de sessão do Baileys (KV Store)
+ * Simula o sistema de arquivos para armazenar credenciais e chaves
+ */
+export const whatsappSessions = pgTable('whatsapp_sessions', {
+    // Chave composta não é suportada diretamente na definição de coluna em drizzle-orm antigo,
+    // usamos primaryKey() no final da tabela.
+
+    instanceId: uuid('instance_id')
+        .references(() => whatsappInstances.id, { onDelete: 'cascade' })
+        .notNull(),
+
+    key: varchar('key', { length: 255 }).notNull(),
+
+    value: text('value').notNull(), // JSON stringified
+
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+}, (table) => ({
+    pk: primaryKey({ columns: [table.instanceId, table.key] }),
+}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // RELATIONS (Drizzle Relations)
 // ─────────────────────────────────────────────────────────────────────────────

@@ -15,17 +15,13 @@
 
 import makeWASocket, {
     DisconnectReason,
-    useMultiFileAuthState,
     WASocket,
-    BaileysEventMap,
-    AuthenticationState,
     makeCacheableSignalKeyStore,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import { EventEmitter } from 'events';
-import * as path from 'path';
-import * as fs from 'fs';
 import pino from 'pino';
+import { usePostgresAuthState } from './baileys-auth';
 
 // Tipos de eventos emitidos pelo serviço
 export interface BaileysServiceEvents {
@@ -45,7 +41,6 @@ export interface BaileysServiceEvents {
 export class BaileysService extends EventEmitter {
     private socket: WASocket | null = null;
     private instanceId: string;
-    private authFolder: string;
     private reconnectAttempts = 0;
     private maxReconnectAttempts = 5;
     private isConnecting = false;
@@ -54,9 +49,6 @@ export class BaileysService extends EventEmitter {
     constructor(instanceId: string) {
         super();
         this.instanceId = instanceId;
-        // Pasta de autenticação para esta instância
-        this.authFolder = path.join(process.cwd(), '.whatsapp-sessions', instanceId);
-
         // Logger silencioso para produção
         this.logger = pino({ level: process.env.NODE_ENV === 'development' ? 'debug' : 'silent' });
     }
@@ -73,13 +65,8 @@ export class BaileysService extends EventEmitter {
         this.isConnecting = true;
 
         try {
-            // Garantir que a pasta de sessão existe
-            if (!fs.existsSync(this.authFolder)) {
-                fs.mkdirSync(this.authFolder, { recursive: true });
-            }
-
-            // Carregar estado de autenticação
-            const { state, saveCreds } = await useMultiFileAuthState(this.authFolder);
+            // Carregar estado de autenticação do Banco de Dados (Hotfix Vercel)
+            const { state, saveCreds } = await usePostgresAuthState(this.instanceId);
 
             // Criar socket
             this.socket = makeWASocket({
@@ -207,7 +194,8 @@ export class BaileysService extends EventEmitter {
 
         try {
             // Formatar número para JID do WhatsApp
-            const jid = `${to.replace(/\D/g, '')}@s.whatsapp.net`;
+            const safeTo = to ?? '';
+            const jid = `${safeTo.replace(/\D/g, '')}@s.whatsapp.net`;
 
             const result = await this.socket.sendMessage(jid, { text });
 
@@ -250,14 +238,20 @@ export class BaileysService extends EventEmitter {
     }
 
     /**
-     * Limpa a sessão (remove arquivos de autenticação)
+     * Limpa a sessão (remove dados do banco)
      */
     async clearSession(): Promise<void> {
         try {
-            if (fs.existsSync(this.authFolder)) {
-                fs.rmSync(this.authFolder, { recursive: true, force: true });
-            }
-            console.log(`[Baileys ${this.instanceId}] Sessão limpa`);
+            // Import dinâmico ou mover lógica para helper, 
+            // mas como já temos db configurado no projeto:
+            const { db } = await import('@/lib/db');
+            const { whatsappSessions } = await import('@/db/schema');
+            const { eq } = await import('drizzle-orm');
+
+            await db.delete(whatsappSessions)
+                .where(eq(whatsappSessions.instanceId, this.instanceId));
+
+            console.log(`[Baileys ${this.instanceId}] Sessão limpa do banco de dados`);
         } catch (error) {
             console.error(`[Baileys ${this.instanceId}] Erro ao limpar sessão:`, error);
         }
