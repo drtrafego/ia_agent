@@ -242,8 +242,9 @@ export class StageMachine {
                 try {
                     console.log('[StageMachine] 📅 Tentando agendar reunião...', finalVars);
 
-                    // Buscar usuário com integração Google (primeiro tenta agent.userId, depois busca qualquer um)
+                    // Buscar usuário com integração Google (primeiro tenta agent.userId, depois busca qualquer um REAL)
                     const { integrations } = await import('@/db/schema');
+                    const { not, like } = await import('drizzle-orm');
                     let calendarUserId = agent.userId;
 
                     // Verificar se o agent.userId tem integração Google
@@ -252,17 +253,20 @@ export class StageMachine {
                     });
 
                     if (!agentIntegration) {
-                        // Buscar qualquer usuário com integração Google
+                        // Buscar qualquer usuário REAL com integração Google (excluir demo users)
                         const anyGoogleIntegration = await db.query.integrations.findFirst({
-                            where: eq(integrations.provider, 'google')
+                            where: and(
+                                eq(integrations.provider, 'google'),
+                                not(like(integrations.userId, '00000000%')) // Excluir demo users
+                            )
                         });
 
                         if (anyGoogleIntegration) {
                             calendarUserId = anyGoogleIntegration.userId;
-                            console.log(`[StageMachine] 📅 Usando integração Google de outro usuário: ${calendarUserId}`);
+                            console.log(`[StageMachine] 📅 Usando integração Google de usuário real: ${calendarUserId}`);
                         } else {
-                            console.error('[StageMachine] ❌ Nenhuma integração Google encontrada no sistema');
-                            throw new Error('Nenhuma integração Google configurada');
+                            console.error('[StageMachine] ❌ Nenhuma integração Google de usuário real encontrada');
+                            throw new Error('Nenhuma integração Google configurada por um usuário real');
                         }
                     }
 

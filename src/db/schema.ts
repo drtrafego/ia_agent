@@ -622,6 +622,80 @@ export const sessions = pgTable('sessions', {
 }));
 
 // ─────────────────────────────────────────────────────────────────────────────
+// WHATSAPP INSTANCES TABLE
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Tipo de conexão WhatsApp
+ */
+export const whatsappConnectionTypeEnum = pgEnum('whatsapp_connection_type', [
+    'api_oficial',  // Meta Cloud API (webhook)
+    'qr_code',      // Baileys (conexão via QR Code)
+]);
+
+/**
+ * Status da instância WhatsApp
+ */
+export const whatsappInstanceStatusEnum = pgEnum('whatsapp_instance_status', [
+    'disconnected', // Não conectado
+    'connecting',   // Gerando QR / Conectando
+    'connected',    // Conectado e funcionando
+    'error',        // Erro de conexão
+]);
+
+/**
+ * Tabela de instâncias WhatsApp.
+ * Cada agente pode ter uma instância WhatsApp vinculada.
+ * Suporta tanto API Oficial (Meta) quanto conexão via QR Code (Baileys).
+ */
+export const whatsappInstances = pgTable('whatsapp_instances', {
+    id: uuid('id').defaultRandom().primaryKey(),
+
+    // Relacionamento com agente (1:1)
+    agentId: uuid('agent_id')
+        .notNull()
+        .references(() => agents.id, { onDelete: 'cascade' })
+        .unique(),
+
+    // Tipo de conexão
+    connectionType: whatsappConnectionTypeEnum('connection_type').notNull(),
+
+    // Status atual
+    status: whatsappInstanceStatusEnum('status').default('disconnected').notNull(),
+
+    // Número de telefone conectado (formato: 5511999999999)
+    phoneNumber: varchar('phone_number', { length: 30 }),
+
+    // Nome do perfil WhatsApp
+    profileName: varchar('profile_name', { length: 255 }),
+
+    // Credenciais (JSON criptografado)
+    // Para API Oficial: { token, phoneNumberId, businessAccountId, appSecret, verifyToken }
+    // Para QR Code: { sessionData } - dados do Baileys salvos
+    credentials: text('credentials'), // Criptografado com AES-256-GCM
+
+    // Último QR Code gerado (para QR Code type)
+    lastQrCode: text('last_qr_code'),
+
+    // Última vez que o QR foi gerado
+    qrGeneratedAt: timestamp('qr_generated_at', { mode: 'date' }),
+
+    // Última conexão bem-sucedida
+    lastConnectedAt: timestamp('last_connected_at', { mode: 'date' }),
+
+    // Mensagem de erro (se status = 'error')
+    errorMessage: text('error_message'),
+
+    // Metadados
+    createdAt: timestamp('created_at', { mode: 'date' }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { mode: 'date' }).defaultNow().notNull(),
+}, (table) => ({
+    agentIdIdx: index('whatsapp_instances_agent_id_idx').on(table.agentId),
+    statusIdx: index('whatsapp_instances_status_idx').on(table.status),
+    phoneIdx: index('whatsapp_instances_phone_idx').on(table.phoneNumber),
+}));
+
+// ─────────────────────────────────────────────────────────────────────────────
 // RELATIONS (Drizzle Relations)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -645,6 +719,10 @@ export const agentsRelations = relations(agents, ({ one, many }) => ({
     stages: many(agentStages),
     knowledgeBase: many(knowledgeBase),
     threads: many(threads),
+    whatsappInstance: one(whatsappInstances, {
+        fields: [agents.id],
+        references: [whatsappInstances.agentId],
+    }),
 }));
 
 
@@ -739,6 +817,16 @@ export const agentActionsRelations = relations(agentActions, ({ one }) => ({
     }),
 }));
 
+/**
+ * Relações das instâncias WhatsApp
+ */
+export const whatsappInstancesRelations = relations(whatsappInstances, ({ one }) => ({
+    agent: one(agents, {
+        fields: [whatsappInstances.agentId],
+        references: [agents.id],
+    }),
+}));
+
 // ─────────────────────────────────────────────────────────────────────────────
 // TYPES (Inferidos do Schema)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -773,6 +861,9 @@ export type NewToolCall = typeof toolCalls.$inferInsert;
 export type Session = typeof sessions.$inferSelect;
 export type NewSession = typeof sessions.$inferInsert;
 
+export type WhatsAppInstance = typeof whatsappInstances.$inferSelect;
+export type NewWhatsAppInstance = typeof whatsappInstances.$inferInsert;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // ENUM TYPES
 // ─────────────────────────────────────────────────────────────────────────────
@@ -783,6 +874,8 @@ export type IntegrationProvider = 'google' | 'meta' | 'whatsapp' | 'openai';
 export type ToolCallStatus = 'pending' | 'success' | 'failed';
 export type StageType = 'identify' | 'diagnosis' | 'schedule' | 'handoff' | 'custom';
 export type SessionStatus = 'active' | 'completed' | 'abandoned';
+export type WhatsAppConnectionType = 'api_oficial' | 'qr_code';
+export type WhatsAppInstanceStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
 
 // ─────────────────────────────────────────────────────────────────────────────
 // WIDGET CONFIG TYPE (Zaia-Style)

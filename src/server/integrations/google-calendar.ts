@@ -30,7 +30,21 @@ export class GoogleCalendarService {
             throw new Error('Google Integration not found for user');
         }
 
-        const credentials = JSON.parse(decryptCredential(integration.credentials));
+        // Tentar parsear credenciais (podem ser encrypted ou plain JSON)
+        let credentials;
+        try {
+            // Primeiro tenta como JSON puro (formato atual)
+            credentials = JSON.parse(integration.credentials);
+        } catch {
+            // Se falhar, tenta decriptar (formato futuro seguro)
+            try {
+                credentials = JSON.parse(decryptCredential(integration.credentials));
+            } catch (decryptError) {
+                console.error('[GoogleCalendar] Erro ao decriptar credenciais:', decryptError);
+                throw new Error('Falha ao processar credenciais do Google');
+            }
+        }
+
         this.oauth2Client.setCredentials({
             access_token: credentials.accessToken,
             refresh_token: credentials.refreshToken,
