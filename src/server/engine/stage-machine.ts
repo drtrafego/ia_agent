@@ -111,23 +111,33 @@ export class StageMachine {
 
         const hasBuyingIntent = buyingIntentKeywords.some(kw => lowerMessage.includes(kw));
 
+        // Flag para indicar que usuário quer agendar mas precisa de dados básicos
+        let needsBasicInfo = false;
+        const hasName = existingVars.nome && existingVars.nome.trim() !== '';
+
         if (hasBuyingIntent && currentStage.type !== 'schedule' && currentStage.type !== 'handoff') {
-            // Encontrar estágio de agendamento
-            const scheduleStage = allStages.find(s => s.type === 'schedule');
+            // Se tem o nome, pula direto para agendamento
+            if (hasName) {
+                const scheduleStage = allStages.find(s => s.type === 'schedule');
 
-            if (scheduleStage) {
-                console.log(`[StageMachine] 🎯 Intenção de compra detectada! Pulando para: ${scheduleStage.name}`);
-                activeStage = scheduleStage;
+                if (scheduleStage) {
+                    console.log(`[StageMachine] 🎯 Intenção + Nome OK! Pulando para: ${scheduleStage.name}`);
+                    activeStage = scheduleStage;
 
-                // Atualizar sessão direto para agendamento
-                await db.update(sessions)
-                    .set({
-                        currentStageId: scheduleStage.id,
-                        previousStageId: currentStage.id,
-                        stageHistory: [...(session.stageHistory as string[]), scheduleStage.id],
-                        variables: existingVars
-                    })
-                    .where(eq(sessions.id, session.id));
+                    // Atualizar sessão direto para agendamento
+                    await db.update(sessions)
+                        .set({
+                            currentStageId: scheduleStage.id,
+                            previousStageId: currentStage.id,
+                            stageHistory: [...(session.stageHistory as string[]), scheduleStage.id],
+                            variables: { ...existingVars, buyingIntent: true }
+                        })
+                        .where(eq(sessions.id, session.id));
+                }
+            } else {
+                // Não tem nome - marca flag para pedir antes de agendar
+                console.log(`[StageMachine] 🎯 Intenção detectada, mas precisa do nome primeiro`);
+                needsBasicInfo = true;
             }
         }
 
@@ -188,7 +198,7 @@ export class StageMachine {
         const model = getModel(modelConfig.provider || 'openai', modelConfig.model || 'gpt-4o-mini');
 
         // 8. Construir prompt avançado para resposta (usando estágio ATIVO, não o antigo)
-        const systemPrompt = this.buildAdvancedPrompt(agent, activeStage, allStages, session, context);
+        const systemPrompt = this.buildAdvancedPrompt(agent, activeStage, allStages, session, context, needsBasicInfo);
 
         // 8. Gerar resposta + análise de transição em uma chamada
         const { text: fullResponse } = await generateText({
@@ -293,8 +303,8 @@ export class StageMachine {
     /**
      * Constrói prompt avançado para resposta de alta qualidade
      */
-    private buildAdvancedPrompt(agent: any, currentStage: any, allStages: any[], session: any, context: string[]) {
-        const vars = session.variables || {};
+    private buildAdvancedPrompt(agent: any, currentStage: any, allStages: any[], session: any, context: string[], needsBasicInfo: boolean = false) {
+        const vars = session?.variables || {};
         const stageFlow = allStages.map((s, i) => `${i}. ${s.name} (${s.type})`).join('\n');
         const currentIndex = allStages.findIndex(s => s.id === currentStage.id);
         const totalStages = allStages.length;
@@ -302,6 +312,15 @@ export class StageMachine {
         // Determine if we're near scheduling stage (should explore more)
         const isNearScheduleStage = currentStage.type === 'diagnosis' ||
             (currentIndex < totalStages - 1 && allStages[currentIndex + 1]?.type === 'schedule');
+
+        // Instrução especial quando precisa de dados básicos antes de agendar
+        const basicInfoInstruction = needsBasicInfo ? `
+## ⚠️ AÇÃO URGENTE
+O usuário quer agendar, mas AINDA NÃO SABEMOS O NOME DELE.
+ANTES de falar sobre agendamento, pergunte de forma natural:
+"Ótimo! Antes de agendar, qual é o seu nome?"
+Só depois de ter o nome, continue para o agendamento.
+` : '';
 
         // Current date info for scheduling
         const now = new Date();
@@ -333,6 +352,7 @@ ${agent.companyProfile ? `\n## CONTEXTO DA EMPRESA\n${agent.companyProfile}` : '
 - Próximos dias úteis disponíveis: ${proximosDias.join(', ')}
 - NUNCA ofereça sábado ou domingo para reuniões
 
+${basicInfoInstruction}
 # TOM DE VOZ
 - Estilo: ${agent.tone || 'amigável'} e ${agent.personality || 'profissional'}
 - Idioma: ${agent.language || 'pt-BR'}
