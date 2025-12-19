@@ -410,25 +410,22 @@ export class StageMachine {
                     });
 
                     if (!agentIntegration) {
-                        // Buscar qualquer usuário REAL com integração Google (excluir demo user específico)
-                        const DEMO_USER_ID = '00000000-0000-0000-0000-000000000001';
-                        const { ne } = await import('drizzle-orm');
-
+                        // SIMPLIFICADO: Buscar QUALQUER integração Google no sistema
+                        // (O sistema tem apenas uma conta Google conectada)
                         const anyGoogleIntegration = await db.query.integrations.findFirst({
-                            where: and(
-                                eq(integrations.provider, 'google'),
-                                ne(integrations.userId, DEMO_USER_ID) // Excluir demo user
-                            )
+                            where: eq(integrations.provider, 'google')
                         });
 
                         if (anyGoogleIntegration) {
                             calendarUserId = anyGoogleIntegration.userId;
-                            console.log(`[StageMachine] 📅 Usando integração Google de usuário real: ${calendarUserId}`);
+                            console.log(`[StageMachine] 📅 Usando integração Google encontrada: userId=${calendarUserId}`);
                         } else {
-                            console.error('[StageMachine] ❌ Nenhuma integração Google de usuário real encontrada');
-                            // Throw specific error to be caught below
+                            console.error('[StageMachine] ❌ NENHUMA integração Google existe no banco de dados!');
+                            console.error('[StageMachine] 💡 Conecte o Google Calendar em: /dashboard/integrations');
                             throw new Error('CONFIG_ERROR_NO_INTEGRATION');
                         }
+                    } else {
+                        console.log(`[StageMachine] 📅 Integração Google do agente encontrada: userId=${agent.userId}`);
                     }
 
                     // Parse date from Brazilian format (DD/MM) - handles "terça-feira, 23/12" format
