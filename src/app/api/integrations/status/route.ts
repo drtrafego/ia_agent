@@ -11,10 +11,10 @@ const DEFAULT_USER_ID = process.env.DEFAULT_USER_ID || '00000000-0000-0000-0000-
 
 export async function GET() {
     try {
-        // Buscar integração Google
+        // Buscar QUALQUER integração Google ativa (não apenas do DEFAULT_USER_ID)
+        // Isso garante que se a integração foi salva com outro userId, ainda será encontrada
         const googleIntegration = await db.query.integrations.findFirst({
             where: and(
-                eq(integrations.userId, DEFAULT_USER_ID),
                 eq(integrations.provider, 'google'),
                 eq(integrations.isActive, true)
             )
