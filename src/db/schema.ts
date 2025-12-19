@@ -31,6 +31,7 @@ import {
     index,
     uniqueIndex,
     vector,
+    primaryKey,
 } from 'drizzle-orm/pg-core';
 import { relations, sql } from 'drizzle-orm';
 
