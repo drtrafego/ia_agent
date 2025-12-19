@@ -411,11 +411,22 @@ export class StageMachine {
         if (finalVars['hora'] && !finalVars['horario_reuniao']) finalVars['horario_reuniao'] = finalVars['hora'];
         if (finalVars['horario'] && !finalVars['horario_reuniao']) finalVars['horario_reuniao'] = finalVars['horario'];
 
-        if (activeStage.type === 'schedule' || currentStage.type === 'schedule') {
-            const hasSchedulingData = finalVars.email && (finalVars.data_reuniao || finalVars.horario_reuniao);
-            console.log(`[StageMachine] 📊 Verificando dados para agendamento: email=${finalVars.email}, data=${finalVars.data_reuniao}, hora=${finalVars.horario_reuniao}`);
+        // DEBUG: Log todas as variáveis extraídas
+        console.log('[DEBUG] extractedFromMessage:', JSON.stringify(extractedFromMessage));
+        console.log('[DEBUG] analysisResult.extractedVars:', JSON.stringify(analysisResult.extractedVars));
+        console.log('[DEBUG] finalVars:', JSON.stringify(finalVars));
 
-            if (hasSchedulingData && !finalVars.meetingCreated) {
+        // CORREÇÃO CRÍTICA: Agendar quando DADOS COMPLETOS, independente do estágio
+        const hasCompleteSchedulingData = finalVars.email && finalVars.data_reuniao && finalVars.horario_reuniao;
+        const isScheduleStage = activeStage.type === 'schedule' || currentStage.type === 'schedule';
+
+        console.log(`[StageMachine] 📊 Verificando agendamento: hasCompleteData=${hasCompleteSchedulingData}, isScheduleStage=${isScheduleStage}`);
+        console.log(`[StageMachine] 📊 Dados: email=${finalVars.email}, data=${finalVars.data_reuniao}, hora=${finalVars.horario_reuniao}`);
+
+        if ((hasCompleteSchedulingData || isScheduleStage) && !finalVars.meetingCreated) {
+            const hasSchedulingData = finalVars.email && (finalVars.data_reuniao || finalVars.horario_reuniao);
+
+            if (hasSchedulingData) {
                 try {
                     console.log('[StageMachine] 📅 Tentando agendar reunião...', finalVars);
 
