@@ -197,6 +197,62 @@ export class StageMachine {
             extractedFromMessage['nome'] = userMessage.trim();
         }
 
+        // Detectar DATA diretamente da mensagem (ex: "22/12", "dia 22", "22 de dezembro")
+        const datePatterns = [
+            /(\d{1,2})\s*[\/\-]\s*(\d{1,2})/,  // 22/12 ou 22-12
+            /dia\s+(\d{1,2})(?:\s+de\s+(\w+))?/i,  // dia 22, dia 22 de dezembro
+            /(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/i,
+        ];
+        for (const pattern of datePatterns) {
+            const match = userMessage.match(pattern);
+            if (match) {
+                // Converter para formato DD/MM se possível
+                const day = match[1];
+                let month = match[2];
+                if (month && isNaN(parseInt(month))) {
+                    // Converter nome do mês para número
+                    const monthNames: Record<string, string> = {
+                        'janeiro': '01', 'fevereiro': '02', 'março': '03', 'abril': '04',
+                        'maio': '05', 'junho': '06', 'julho': '07', 'agosto': '08',
+                        'setembro': '09', 'outubro': '10', 'novembro': '11', 'dezembro': '12'
+                    };
+                    month = monthNames[month.toLowerCase()] || String(new Date().getMonth() + 1).padStart(2, '0');
+                }
+                extractedFromMessage['data_reuniao'] = `${day}/${month || String(new Date().getMonth() + 1).padStart(2, '0')}`;
+                console.log(`[StageMachine] 📅 Data extraída diretamente: ${extractedFromMessage['data_reuniao']}`);
+                break;
+            }
+        }
+
+        // Detectar HORÁRIO diretamente da mensagem (ex: "10h", "às 10", "10:00", "10 da manhã")
+        const timePatterns = [
+            /(\d{1,2})(?:[:h](\d{2}))?\s*(?:h|horas?)?/i,  // 10h, 10:00, 10h30
+            /às?\s+(\d{1,2})(?:[:h](\d{2}))?/i,  // às 10, as 10:30
+            /(\d{1,2})\s+(?:da\s+)?(manhã|tarde|noite)/i,  // 10 da manhã
+        ];
+        for (const pattern of timePatterns) {
+            const match = userMessage.match(pattern);
+            if (match && match[1]) {
+                let hours = parseInt(match[1]);
+                const minutes = match[2] || '00';
+                // Ajustar para período (manhã/tarde/noite)
+                if (match[3]) {
+                    if (match[3].toLowerCase() === 'tarde' && hours < 12) hours += 12;
+                    if (match[3].toLowerCase() === 'noite' && hours < 18) hours += 12;
+                }
+                extractedFromMessage['horario_reuniao'] = `${hours}:${minutes}`;
+                console.log(`[StageMachine] 🕐 Horário extraído diretamente: ${extractedFromMessage['horario_reuniao']}`);
+                break;
+            }
+        }
+
+        // Detectar EMAIL diretamente da mensagem
+        const emailMatch = userMessage.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i);
+        if (emailMatch) {
+            extractedFromMessage['email'] = emailMatch[0].toLowerCase();
+            console.log(`[StageMachine] 📧 Email extraído diretamente: ${extractedFromMessage['email']}`);
+        }
+
         // Combinar variáveis existentes + extraídas
         const allVars = { ...existingVars, ...extractedFromMessage };
 
@@ -269,9 +325,23 @@ export class StageMachine {
         }
 
         // 11. AGENDAMENTO AUTOMÁTICO: Se estamos no estágio de schedule e temos os dados
-        const finalVars = { ...(session?.variables as object || {}), ...analysisResult.extractedVars };
+        // Consolidar TODAS as variáveis: sessão + extração direta + análise IA
+        const finalVars: Record<string, any> = {
+            ...(session?.variables as object || {}),
+            ...extractedFromMessage,  // CRÍTICO: incluir extração direta
+            ...analysisResult.extractedVars
+        };
+
+        // Mapear sinônimos de agendamento (caso IA tenha usado nomes diferentes)
+        if (finalVars['data_agendamento'] && !finalVars['data_reuniao']) finalVars['data_reuniao'] = finalVars['data_agendamento'];
+        if (finalVars['data'] && !finalVars['data_reuniao']) finalVars['data_reuniao'] = finalVars['data'];
+        if (finalVars['hora_agendamento'] && !finalVars['horario_reuniao']) finalVars['horario_reuniao'] = finalVars['hora_agendamento'];
+        if (finalVars['hora'] && !finalVars['horario_reuniao']) finalVars['horario_reuniao'] = finalVars['hora'];
+        if (finalVars['horario'] && !finalVars['horario_reuniao']) finalVars['horario_reuniao'] = finalVars['horario'];
+
         if (activeStage.type === 'schedule' || currentStage.type === 'schedule') {
             const hasSchedulingData = finalVars.email && (finalVars.data_reuniao || finalVars.horario_reuniao);
+            console.log(`[StageMachine] 📊 Verificando dados para agendamento: email=${finalVars.email}, data=${finalVars.data_reuniao}, hora=${finalVars.horario_reuniao}`);
 
             if (hasSchedulingData && !finalVars.meetingCreated) {
                 try {
@@ -584,6 +654,12 @@ Responda APENAS com JSON válido:
             if (allVars['segmento'] && !allVars['area']) allVars['area'] = allVars['segmento'];
             if (allVars['dor'] && !allVars['desafio']) allVars['desafio'] = allVars['dor'];
             if (allVars['problema'] && !allVars['desafio']) allVars['desafio'] = allVars['problema'];
+            // CRÍTICO: Mapear sinônimos de agendamento
+            if (allVars['data_agendamento'] && !allVars['data_reuniao']) allVars['data_reuniao'] = allVars['data_agendamento'];
+            if (allVars['data'] && !allVars['data_reuniao']) allVars['data_reuniao'] = allVars['data'];
+            if (allVars['hora_agendamento'] && !allVars['horario_reuniao']) allVars['horario_reuniao'] = allVars['hora_agendamento'];
+            if (allVars['hora'] && !allVars['horario_reuniao']) allVars['horario_reuniao'] = allVars['hora'];
+            if (allVars['horario'] && !allVars['horario_reuniao']) allVars['horario_reuniao'] = allVars['horario'];
 
             // Verificar se todas as variáveis obrigatórias foram coletadas
             const hasAllRequired = requiredVars.length === 0 ||
