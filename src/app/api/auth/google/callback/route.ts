@@ -27,17 +27,27 @@ const DEFAULT_USER_ID = process.env.DEFAULT_USER_ID || 'a1b2c3d4-e5f6-7890-abcd-
  * This prevents FK violation when creating integrations
  */
 async function ensureDefaultUserExists(userId: string, email?: string): Promise<void> {
-    const existingUser = await db.query.users.findFirst({
-        where: eq(users.id, userId)
-    });
-
-    if (!existingUser) {
-        await db.insert(users).values({
-            id: userId,
-            name: 'Admin',
-            email: email || 'admin@sistema.local',
+    try {
+        // Check if user already exists by ID
+        const existingUser = await db.query.users.findFirst({
+            where: eq(users.id, userId)
         });
-        console.log('[OAuth2] Created default user:', userId);
+
+        if (!existingUser) {
+            // Use unique email based on userId to avoid conflicts
+            const uniqueEmail = email || `system-${userId.substring(0, 8)}@sistema.local`;
+
+            await db.insert(users).values({
+                id: userId,
+                name: 'Sistema',
+                email: uniqueEmail,
+            }).onConflictDoNothing(); // Ignore if already exists
+
+            console.log('[OAuth2] Created/verified user:', userId);
+        }
+    } catch (error: any) {
+        // If still conflicts, just log and continue - user might already exist
+        console.log('[OAuth2] User already exists or conflict, continuing:', userId);
     }
 }
 
