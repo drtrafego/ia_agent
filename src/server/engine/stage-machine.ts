@@ -212,9 +212,9 @@ export class StageMachine {
         // Detectar DATA diretamente da mensagem (EXPANDIDO para mais formatos)
         const now = new Date();
         const datePatterns = [
-            /(\\d{1,2})\\s*[\\/\\-]\\s*(\\d{1,2})/,  // 22/12 ou 22-12
-            /dia\\s+(\\d{1,2})(?:\\s+de\\s+(\\w+))?/i,  // dia 22, dia 22 de dezembro
-            /(\\d{1,2})\\s+de\\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/i,
+            /(\d{1,2})\s*[\/\-]\s*(\d{1,2})/,  // 22/12 ou 22-12
+            /dia\s+(\d{1,2})(?:\s+de\s+(\w+))?/i,  // dia 22, dia 22 de dezembro
+            /(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/i,
         ];
 
         // Detectar dias da semana (segunda, terça, etc.)
@@ -273,10 +273,10 @@ export class StageMachine {
 
         // Detectar HORÁRIO diretamente da mensagem (EXPANDIDO)
         const timePatterns = [
-            /(\\d{1,2})[:h](\\d{2})/i,  // 10:00, 10h30
-            /(\\d{1,2})\\s*h(?:oras?)?/i,  // 10h, 10 horas
-            /às?\\s+(\\d{1,2})(?:[:h](\\d{2}))?/i,  // às 10, as 10:30
-            /(\\d{1,2})\\s+(?:da\\s+)?(manhã|manha|tarde|noite)/i,  // 10 da manhã
+            /(\d{1,2})[:h](\d{2})/i,  // 10:00, 10h30
+            /(\d{1,2})\s*h(?:oras?)?/i,  // 10h, 10 horas
+            /às?\s+(\d{1,2})(?:[:h](\d{2}))?/i,  // às 10, as 10:30
+            /(\d{1,2})\s+(?:da\s+)?(manhã|manha|tarde|noite)/i,  // 10 da manhã
         ];
         for (const pattern of timePatterns) {
             const match = userMessage.match(pattern);
@@ -289,12 +289,29 @@ export class StageMachine {
                     if ((periodo === 'tarde') && hours < 12) hours += 12;
                     if ((periodo === 'noite') && hours < 18) hours += 12;
                 }
-                // Validar horário comercial (8h-20h)
+                // Validar horário comercial (6h-22h)
                 if (hours >= 6 && hours <= 22) {
                     extractedFromMessage['horario_reuniao'] = `${hours}:${minutes}`;
                     console.log(`[StageMachine] 🕐 Horário extraído diretamente: ${extractedFromMessage['horario_reuniao']}`);
                     break;
                 }
+            }
+        }
+
+        // FALLBACK: Se mensagem é APENAS um número (ex: "16", "23", "10")
+        const pureNumberMatch = userMessage.trim().match(/^(\d{1,2})$/);
+        if (pureNumberMatch) {
+            const num = parseInt(pureNumberMatch[1]);
+            // Se entre 6-22, provavelmente é horário
+            if (num >= 6 && num <= 22 && !extractedFromMessage['horario_reuniao']) {
+                extractedFromMessage['horario_reuniao'] = `${num}:00`;
+                console.log(`[StageMachine] 🕐 Número interpretado como horário: ${num}:00`);
+            }
+            // Se entre 1-31, pode ser dia do mês
+            if (num >= 1 && num <= 31 && !extractedFromMessage['data_reuniao']) {
+                const currentMonth = (now.getMonth() + 1).toString().padStart(2, '0');
+                extractedFromMessage['data_reuniao'] = `${num.toString().padStart(2, '0')}/${currentMonth}`;
+                console.log(`[StageMachine] 📅 Número interpretado como dia: ${extractedFromMessage['data_reuniao']}`);
             }
         }
 
