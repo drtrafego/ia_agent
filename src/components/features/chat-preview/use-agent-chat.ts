@@ -7,9 +7,13 @@
  * 
  * Este hook gerencia o estado de uma conversa de teste com o agente.
  * Usado no componente de preview para testar configurações do agente.
+ * 
+ * MELHORIAS:
+ * - Debounce de 1.5s para acumular mensagens rápidas
+ * - Suporte a threadId para persistência  
  */
 
-import { useState, useCallback, useTransition } from 'react';
+import { useState, useCallback, useTransition, useRef, useEffect } from 'react';
 
 export interface ChatMessage {
     id: string;
@@ -27,33 +31,47 @@ export interface ChatMessage {
 
 interface UseAgentChatOptions {
     agentId: string;
+    threadId?: string; // Opcional: para persistência de contexto
     onError?: (error: Error) => void;
+    debounceMs?: number; // Tempo de debounce em ms (default: 1500)
 }
 
 interface UseAgentChatReturn {
     messages: ChatMessage[];
     isLoading: boolean;
+    isTyping: boolean; // Indica que está esperando mais input
     error: string | null;
-    sendMessage: (content: string) => Promise<void>;
+    sendMessage: (content: string) => void; // Retorna void, pois é debounced
     clearMessages: () => void;
     retryLastMessage: () => Promise<void>;
+    threadId: string | null;
 }
+
+// Constantes
+const DEFAULT_DEBOUNCE_MS = 1500;
 
 /**
  * Hook para gerenciar chat com agente
  * 
  * @example
- * const { messages, sendMessage, isLoading } = useAgentChat({ agentId: '123' });
+ * const { messages, sendMessage, isLoading, isTyping } = useAgentChat({ agentId: '123' });
  * 
- * await sendMessage('Olá, quais são os preços?');
+ * sendMessage('Olá'); // Acumula mensagens por 1.5s
+ * sendMessage('Meu nome é João'); // Concatena com a anterior
  */
 export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
-    const { agentId, onError } = options;
+    const { agentId, threadId: externalThreadId, onError, debounceMs = DEFAULT_DEBOUNCE_MS } = options;
 
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [error, setError] = useState<string | null>(null);
     const [isPending] = useTransition();
     const [isLoading, setIsLoading] = useState(false);
+    const [isTyping, setIsTyping] = useState(false);
+    const [threadId, setThreadId] = useState<string | null>(externalThreadId || null);
+
+    // Refs para debounce
+    const messageBufferRef = useRef<string[]>([]);
+    const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
 
     /**
      * Gera um ID único para mensagens
@@ -61,18 +79,22 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     const generateId = () => `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
     /**
-     * Envia uma mensagem para o agente
+     * Processa e envia as mensagens acumuladas
      */
-    const sendMessage = useCallback(async (content: string) => {
-        if (!content.trim()) return;
+    const processBufferedMessages = useCallback(async () => {
+        const bufferedContent = messageBufferRef.current.join('\n').trim();
+        messageBufferRef.current = [];
+        setIsTyping(false);
+
+        if (!bufferedContent) return;
 
         setError(null);
 
-        // Adiciona mensagem do usuário
+        // Adiciona mensagem do usuário (pode conter múltiplas linhas)
         const userMessage: ChatMessage = {
             id: generateId(),
             role: 'user',
-            content: content.trim(),
+            content: bufferedContent,
             timestamp: new Date(),
         };
 
@@ -97,7 +119,8 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
                 },
                 body: JSON.stringify({
                     agentId,
-                    message: content,
+                    threadId, // Envia threadId se disponível
+                    message: bufferedContent,
                     history: messages.map(m => ({
                         role: m.role,
                         content: m.content,
@@ -110,6 +133,11 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
             }
 
             const data = await response.json();
+
+            // Atualiza threadId se retornado
+            if (data.threadId && !threadId) {
+                setThreadId(data.threadId);
+            }
 
             // Atualiza mensagem com resposta real
             setMessages(prev =>
@@ -146,7 +174,29 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
         } finally {
             setIsLoading(false);
         }
-    }, [agentId, messages, onError]);
+    }, [agentId, messages, onError, threadId]);
+
+    /**
+     * Envia uma mensagem para o agente (com debounce)
+     * Acumula mensagens rápidas em uma só
+     */
+    const sendMessage = useCallback((content: string) => {
+        if (!content.trim()) return;
+
+        // Adiciona ao buffer
+        messageBufferRef.current.push(content.trim());
+        setIsTyping(true);
+
+        // Limpa timer anterior
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+
+        // Configura novo timer
+        debounceTimerRef.current = setTimeout(() => {
+            processBufferedMessages();
+        }, debounceMs);
+    }, [debounceMs, processBufferedMessages]);
 
     /**
      * Limpa todas as mensagens
@@ -154,6 +204,12 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
     const clearMessages = useCallback(() => {
         setMessages([]);
         setError(null);
+        setThreadId(null);
+        messageBufferRef.current = [];
+        if (debounceTimerRef.current) {
+            clearTimeout(debounceTimerRef.current);
+        }
+        setIsTyping(false);
     }, []);
 
     /**
@@ -181,18 +237,30 @@ export function useAgentChat(options: UseAgentChatOptions): UseAgentChatReturn {
                 return prev;
             });
 
-            // Reenvia
-            await sendMessage(lastUserMessage.content);
+            // Reenvia diretamente (sem debounce)
+            messageBufferRef.current = [lastUserMessage.content];
+            await processBufferedMessages();
         }
-    }, [messages, sendMessage]);
+    }, [messages, processBufferedMessages]);
+
+    // Cleanup no unmount
+    useEffect(() => {
+        return () => {
+            if (debounceTimerRef.current) {
+                clearTimeout(debounceTimerRef.current);
+            }
+        };
+    }, []);
 
     return {
         messages,
         isLoading: isLoading || isPending,
+        isTyping,
         error,
         sendMessage,
         clearMessages,
         retryLastMessage,
+        threadId,
     };
 }
 

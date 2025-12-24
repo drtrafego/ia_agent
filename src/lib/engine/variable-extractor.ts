@@ -164,15 +164,34 @@ export function extractVariablesWithRegex(
 
 /**
  * Combina variáveis existentes com novas extraídas
+ * IMPORTANTE: Não sobrescreve valores válidos existentes com valores vazios
  */
 export function mergeVariables(
     existing: Record<string, unknown>,
     extracted: Record<string, unknown>
 ): Record<string, unknown> {
-    return {
-        ...existing,
-        ...extracted, // Novas variáveis sobrescrevem
-    };
+    const result = { ...existing };
+
+    for (const [key, value] of Object.entries(extracted)) {
+        const existingValue = existing[key];
+
+        // Verifica se já existe um valor válido
+        const hasExistingValue = existingValue !== undefined &&
+            existingValue !== null &&
+            existingValue !== '';
+
+        // Verifica se o novo valor é válido
+        const hasNewValue = value !== undefined && value !== null && value !== '';
+
+        // Só atualiza se:
+        // 1. Não existe valor anterior válido, OU
+        // 2. O novo valor também é válido (não vazio)
+        if (!hasExistingValue || hasNewValue) {
+            result[key] = value;
+        }
+    }
+
+    return result;
 }
 
 /**
