@@ -27,17 +27,17 @@ import {
     handleWebhookVerification,
     type WhatsAppWebhookPayload,
 } from '@/server/services/meta-whatsapp.service';
-import { getOrCreateThreadAction, addMessageToThreadAction } from '@/server/actions/thread.actions';
+import { getOrCreateThreadAction } from '@/server/actions/thread.actions';
 import { getDefaultAgent } from '@/server/queries/agent.queries';
-import { getActiveKnowledgeByAgentId } from '@/server/queries/knowledge.queries';
-import { getContextMessages } from '@/server/queries/message.queries';
-import { generateAgentResponse, buildSystemPrompt, getToolsForAgent, FALLBACK_RESPONSE } from '@/lib/ai';
-import { db } from '@/lib/db';
-import { toolCalls } from '@/db/schema';
+import { StageMachine } from '@/server/engine/stage-machine';
+import { FALLBACK_RESPONSE } from '@/lib/ai';
 
 // ID do usuário padrão (em produção, seria dinâmico baseado no número de telefone)
 // TODO: Implementar multi-tenancy
 const DEFAULT_USER_ID = process.env.DEFAULT_USER_ID || '00000000-0000-0000-0000-000000000000';
+
+// Instância do StageMachine (mesma usada pelo frontend)
+const stageMachine = new StageMachine();
 
 /**
  * GET - Verificação do Webhook (Challenge)
@@ -146,117 +146,28 @@ async function processIncomingMessage(message: {
 
         const thread = threadResult.thread;
 
-        // 3. Salvar mensagem do usuário
-        await addMessageToThreadAction(thread.id, {
-            role: 'user',
-            content: text,
-            metadata: { waMessageId: messageId },
-            isFromWebhook: true,
-        });
-
-        // 4. Marcar como lida
+        // 3. Marcar como lida
         await markMessageAsRead(messageId);
 
-        // 5. Carregar contexto (últimas mensagens)
-        const contextMessages = await getContextMessages(thread.id, 10);
+        // ═══════════════════════════════════════════════════════════════════
+        // IMPORTANTE: Usar StageMachine para processar a mensagem
+        // Isso garante mesma lógica do frontend:
+        // - Extração de variáveis (nome, email, data, hora)
+        // - Cérebro/RAG
+        // - Agendamento estruturado
+        // - Persistência automática de mensagens
+        // ═══════════════════════════════════════════════════════════════════
 
-        // 6. Carregar knowledge base
-        const knowledge = await getActiveKnowledgeByAgentId(agent.id);
+        console.log(`[Webhook] Usando StageMachine para processar mensagem`);
 
-        // 7. Construir System Prompt
-        const systemPrompt = buildSystemPrompt({
-            agent: {
-                name: agent.name,
-                systemPrompt: agent.systemPrompt,
-                enabledTools: agent.enabledTools || [],
-            },
-            knowledge: knowledge.map(k => ({
-                topic: k.topic,
-                content: k.content,
-            })),
-            threadContext: contextMessages.slice(-5).map(m => ({
-                role: m.role,
-                content: m.content,
-            })),
-            contactInfo: {
-                name: thread.contactName || fromName,
-                phone: from,
-            },
-        });
+        const responseText = await stageMachine.processMessage(
+            DEFAULT_USER_ID,
+            agent.id,
+            thread.id,
+            text
+        );
 
-        // 8. Preparar mensagens para a IA
-        const aiMessages = contextMessages.map(m => ({
-            role: m.role as 'user' | 'assistant' | 'system',
-            content: m.content,
-        }));
-
-        // Adicionar mensagem atual
-        aiMessages.push({ role: 'user' as const, content: text });
-
-        // 9. Preparar tools
-        const tools = agent.enabledTools && agent.enabledTools.length > 0
-            ? getToolsForAgent(agent.enabledTools)
-            : undefined;
-
-        // 10. Chamar IA
-        const aiResult = await generateAgentResponse({
-            model: agent.modelConfig?.model || 'gpt-4o-mini',
-            systemPrompt,
-            messages: aiMessages,
-            tools,
-            temperature: agent.modelConfig?.temperature || 0.7,
-            maxTokens: agent.modelConfig?.maxTokens || 1024,
-        });
-
-        let responseText: string;
-
-        if (aiResult.success) {
-            responseText = aiResult.text || FALLBACK_RESPONSE;
-
-            // Salvar tool calls se houver
-            if (aiResult.toolCalls && aiResult.toolCalls.length > 0) {
-                // Primeiro salvar a mensagem do assistant
-                const messageResult = await addMessageToThreadAction(thread.id, {
-                    role: 'assistant',
-                    content: responseText,
-                    metadata: aiResult.metadata,
-                    isFromWebhook: true,
-                });
-
-                // Depois salvar os tool calls
-                if (messageResult.success && messageResult.message) {
-                    for (const toolCall of aiResult.toolCalls) {
-                        await db.insert(toolCalls).values({
-                            messageId: messageResult.message.id,
-                            toolName: toolCall.toolName,
-                            input: toolCall.args as Record<string, unknown>,
-                            output: null, // Será preenchido pelo resultado
-                            status: 'success',
-                        });
-                    }
-                }
-            } else {
-                // Salvar resposta simples
-                await addMessageToThreadAction(thread.id, {
-                    role: 'assistant',
-                    content: responseText,
-                    metadata: aiResult.metadata,
-                    isFromWebhook: true,
-                });
-            }
-        } else {
-            console.error('[Webhook] Erro na IA:', aiResult.error);
-            responseText = FALLBACK_RESPONSE;
-
-            await addMessageToThreadAction(thread.id, {
-                role: 'assistant',
-                content: responseText,
-                metadata: { error: aiResult.error },
-                isFromWebhook: true,
-            });
-        }
-
-        // 11. Enviar resposta para WhatsApp
+        // 4. Enviar resposta para WhatsApp
         const sendResult = await sendWhatsAppMessage({
             to: from,
             message: responseText,
